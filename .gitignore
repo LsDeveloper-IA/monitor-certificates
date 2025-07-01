@@ -1,0 +1,13 @@
+# Frontend (Next.js)
+certificados-frontend/node_modules/
+certificados-frontend/.next/
+certificados-frontend/.env
+
+# Backend (Python)
+certificados-monitor/__pycache__/
+certificados-monitor/venv/
+certificados-monitor/.env
+certificados-monitor/*.pyc
+
+# Geral
+.DS_Store
