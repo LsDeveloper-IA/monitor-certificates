@@ -7,7 +7,17 @@ certificados-frontend/.env
 certificados-monitor/__pycache__/
 certificados-monitor/venv/
 certificados-monitor/.env
+certificados-monitor/runtime/
+certificados-monitor/automation_engine/.env
+certificados-monitor/automation_engine/credentials.json
+certificados-monitor/automation_engine/token*.json
+certificados-monitor/automation_engine/planilhas/
+certificados-monitor/automation_engine/relatorios/
+certificados-monitor/automation_engine/logs/
+certificados-frontend/.env.local
 certificados-monitor/*.pyc
+**/__pycache__/
+*.py[cod]
 
 # Geral
 .DS_Store

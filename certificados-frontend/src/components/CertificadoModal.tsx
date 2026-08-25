@@ -6,12 +6,23 @@ import { X, Save, Building, User } from 'lucide-react';
 interface CertificadoModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSave: (certificado: any) => void;
-  certificado?: any;
+  onSave: (certificado: CertificadoFormData & { id?: number }) => void;
+  certificado?: Partial<CertificadoFormData> & { id: number };
+}
+
+interface CertificadoFormData {
+  nome_empresa: string;
+  cpf_cnpj: string;
+  tipo: 'PJ' | 'PF';
+  data_vencimento: string;
+  responsavel: string;
+  email_contato: string;
+  telefone_contato: string;
+  observacoes: string;
 }
 
 export default function CertificadoModal({ isOpen, onClose, onSave, certificado }: CertificadoModalProps) {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<CertificadoFormData>({
     nome_empresa: certificado?.nome_empresa || '',
     cpf_cnpj: certificado?.cpf_cnpj || '',
     tipo: certificado?.tipo || 'PJ',
@@ -23,7 +34,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
   });
 
   const [loading, setLoading] = useState(false);
-  const [errors, setErrors] = useState<any>({});
+  const [errors, setErrors] = useState<Record<string, string>>({});
 
   if (!isOpen) return null;
 
@@ -33,12 +44,12 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
     
     // Limpa erro do campo quando usuário começa a digitar
     if (errors[name]) {
-      setErrors((prev: any) => ({ ...prev, [name]: '' }));
+      setErrors(prev => ({ ...prev, [name]: '' }));
     }
   };
 
   const validateForm = () => {
-    const newErrors: any = {};
+    const newErrors: Record<string, string> = {};
 
     if (!formData.nome_empresa.trim()) {
       newErrors.nome_empresa = 'Nome/Empresa é obrigatório';
@@ -85,7 +96,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
         const errorData = await response.json();
         setErrors({ submit: errorData.erro || 'Erro ao salvar certificado' });
       }
-    } catch (error) {
+    } catch {
       setErrors({ submit: 'Erro de conexão. Tente novamente.' });
     } finally {
       setLoading(false);

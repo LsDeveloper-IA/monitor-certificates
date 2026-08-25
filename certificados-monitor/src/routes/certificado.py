@@ -1,8 +1,43 @@
+import hmac
+import os
+
 from flask import Blueprint, request, jsonify
 from datetime import datetime, date, timedelta
 from src.models.certificado import db, Certificado
+from src.services.sincronizacao import sincronizar_certificados
 
 certificado_bp = Blueprint('certificado', __name__)
+
+
+def chave_integracao_valida():
+    chave_configurada = os.getenv('INTEGRACAO_API_KEY', '').strip()
+    chave_recebida = request.headers.get('X-API-Key', '').strip()
+    if not chave_configurada:
+        return None
+    return hmac.compare_digest(chave_configurada, chave_recebida)
+
+
+@certificado_bp.route('/certificados/sincronizar', methods=['POST'])
+def sincronizar_certificados_rota():
+    """Recebe em lote os resultados produzidos pela automação."""
+    autenticado = chave_integracao_valida()
+    if autenticado is None:
+        return jsonify({'erro': 'Integração não configurada no servidor'}), 503
+    if not autenticado:
+        return jsonify({'erro': 'Chave de integração inválida'}), 401
+
+    try:
+        dados = request.get_json(silent=True) or {}
+        resultado = sincronizar_certificados(
+            dados.get('certificados'),
+            substituir_lista=dados.get('substituir_lista') is True,
+        )
+        codigo = 207 if resultado['rejeitados'] else 200
+        return jsonify(resultado), codigo
+    except ValueError as erro:
+        return jsonify({'erro': str(erro)}), 400
+    except Exception:
+        return jsonify({'erro': 'Falha interna ao sincronizar certificados'}), 500
 
 @certificado_bp.route('/certificados', methods=['GET'])
 def listar_certificados():

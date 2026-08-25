@@ -33,8 +33,22 @@ class Certificado(db.Model):
             'arquivo_drive_id': self.arquivo_drive_id,
             'data_criacao': self.data_criacao.isoformat() if self.data_criacao else None,
             'data_atualizacao': self.data_atualizacao.isoformat() if self.data_atualizacao else None,
-            'ativo': self.ativo
+            'ativo': self.ativo,
+            'dias_para_vencimento': self.dias_para_vencimento(),
+            'status': self.status_vencimento()
         }
+
+    def status_vencimento(self):
+        dias = self.dias_para_vencimento()
+        if dias is None:
+            return 'SEM DATA'
+        if dias < 0:
+            return 'VENCIDO'
+        if dias <= 15:
+            return 'URGENTE'
+        if dias <= 30:
+            return 'VENCE EM BREVE'
+        return 'EM DIA'
 
     def dias_para_vencimento(self):
         """Retorna o número de dias até o vencimento do certificado"""

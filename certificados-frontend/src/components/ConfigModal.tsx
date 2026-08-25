@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Save, Mail, MessageCircle, TestTube, Play, Pause, Settings } from 'lucide-react';
 
 interface ConfigModalProps {
@@ -41,6 +41,51 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
     telefones_configurados: 0,
     proximas_execucoes: []
   });
+  const [chaveAdmin, setChaveAdmin] = useState('');
+  const [atualizarExcel, setAtualizarExcel] = useState(false);
+  const [automacaoStatus, setAutomacaoStatus] = useState({
+    executando: false,
+    inicio: null as string | null,
+    fim: null as string | null,
+    codigo_saida: null as number | null,
+    erro: null as string | null,
+    logs: [] as string[],
+  });
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'agendador') return;
+
+    const carregarStatus = async () => {
+      try {
+        const resposta = await fetch('/api/notificacao/agendador/status');
+        if (resposta.ok) setAgendadorStatus(await resposta.json());
+      } catch {
+        // O aviso visual das demais acoes continua disponivel no modal.
+      }
+    };
+
+    carregarStatus();
+    const intervalo = window.setInterval(carregarStatus, 10000);
+    return () => window.clearInterval(intervalo);
+  }, [isOpen, activeTab]);
+
+  useEffect(() => {
+    if (!isOpen || activeTab !== 'agendador' || !chaveAdmin) return;
+    const carregarAutomacao = async () => {
+      try {
+        const resposta = await fetch('/api/automacao/status', {
+          headers: { 'X-Admin-Key': chaveAdmin },
+          cache: 'no-store',
+        });
+        if (resposta.ok) setAutomacaoStatus(await resposta.json());
+      } catch {
+        // Mantem o ultimo estado conhecido quando o backend estiver reiniciando.
+      }
+    };
+    carregarAutomacao();
+    const intervalo = window.setInterval(carregarAutomacao, 3000);
+    return () => window.clearInterval(intervalo);
+  }, [isOpen, activeTab, chaveAdmin]);
 
   if (!isOpen) return null;
 
@@ -48,6 +93,32 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
     setMessage(text);
     setMessageType(type);
     setTimeout(() => setMessage(''), 5000);
+  };
+
+  const executarAutomacaoIntegrada = async () => {
+    if (!chaveAdmin.trim()) {
+      showMessage('Informe a chave administrativa.', 'error');
+      return;
+    }
+    setLoading(true);
+    try {
+      const resposta = await fetch('/api/automacao/executar', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
+        body: JSON.stringify({ atualizar_excel: atualizarExcel }),
+      });
+      const conteudo = await resposta.json();
+      if (!resposta.ok) throw new Error(conteudo.erro || 'Falha ao iniciar');
+      showMessage('Automacao iniciada em segundo plano.');
+      setAutomacaoStatus((atual) => ({ ...atual, executando: true }));
+    } catch (erro) {
+      showMessage(erro instanceof Error ? erro.message : 'Falha ao iniciar', 'error');
+    } finally {
+      setLoading(false);
+    }
   };
 
   const handleEmailConfigSubmit = async (e: React.FormEvent) => {
@@ -67,7 +138,7 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
         const error = await response.json();
         showMessage(error.erro || 'Erro ao salvar configurações', 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -91,7 +162,7 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
         const error = await response.json();
         showMessage(error.erro || 'Erro ao salvar configurações', 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -118,7 +189,7 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
         const error = await response.json();
         showMessage(error.erro || 'Erro ao salvar destinatários', 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -148,7 +219,7 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
         const error = await response.json();
         showMessage(error.erro || 'Erro ao enviar e-mail de teste', 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -176,7 +247,7 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
         const error = await response.json();
         showMessage(error.erro || 'Erro ao enviar mensagem de teste', 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -192,12 +263,15 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
 
       if (response.ok) {
         showMessage(`Agendador ${acao === 'iniciar' ? 'iniciado' : 'parado'} com sucesso!`);
-        // Atualizar status
+        setAgendadorStatus(prev => ({
+          ...prev,
+          executando: acao === 'iniciar'
+        }));
       } else {
         const error = await response.json();
         showMessage(error.erro || `Erro ao ${acao} agendador`, 'error');
       }
-    } catch (error) {
+    } catch {
       showMessage('Erro de conexão', 'error');
     } finally {
       setLoading(false);
@@ -508,6 +582,57 @@ export default function ConfigModal({ isOpen, onClose }: ConfigModalProps) {
           {activeTab === 'agendador' && (
             <div className="space-y-6">
               <h4 className="text-lg font-medium text-gray-900">Controle do Agendador</h4>
+
+              <div className="rounded-lg border border-gray-200 p-4 space-y-4">
+                <div>
+                  <h5 className="font-medium text-gray-900">Automacao integrada</h5>
+                  <p className="mt-1 text-sm text-gray-600">
+                    Le os certificados, consulta os clientes e atualiza este site.
+                    E-mails e WhatsContabil permanecem desativados.
+                  </p>
+                </div>
+                <label className="block text-sm text-gray-700">
+                  Chave administrativa
+                  <input
+                    type="password"
+                    value={chaveAdmin}
+                    onChange={(evento) => setChaveAdmin(evento.target.value)}
+                    autoComplete="off"
+                    className="mt-1 w-full rounded-lg border border-gray-300 px-3 py-2"
+                    placeholder="Informe a chave para executar"
+                  />
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={atualizarExcel}
+                    onChange={(evento) => setAtualizarExcel(evento.target.checked)}
+                  />
+                  Atualizar tambem a copia do Excel
+                </label>
+                <div className="flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={executarAutomacaoIntegrada}
+                    disabled={loading || automacaoStatus.executando}
+                    className="flex items-center rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    <Play className="mr-2 h-4 w-4" />
+                    {automacaoStatus.executando ? 'Executando...' : 'Executar agora'}
+                  </button>
+                  <span className={`text-sm font-medium ${automacaoStatus.executando ? 'text-blue-600' : automacaoStatus.codigo_saida === 0 ? 'text-green-600' : 'text-gray-600'}`}>
+                    {automacaoStatus.executando
+                      ? 'Processamento em andamento'
+                      : automacaoStatus.codigo_saida === 0
+                        ? 'Ultima execucao concluida'
+                        : automacaoStatus.erro || 'Aguardando execucao'}
+                  </span>
+                </div>
+                {automacaoStatus.logs.length > 0 && (
+                  <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
+                    {automacaoStatus.logs.slice(-30).join('\n')}
+                  </pre>
+                )}
+              </div>
               
               <div className="bg-gray-50 p-4 rounded-lg">
                 <h5 className="font-medium text-gray-900 mb-2">Status Atual</h5>

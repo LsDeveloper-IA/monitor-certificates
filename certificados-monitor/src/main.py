@@ -4,20 +4,33 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
 from flask import Flask, send_from_directory
+from flask_cors import CORS
+from dotenv import load_dotenv
 from src.models.user import db
 from src.models.certificado import Certificado
 from src.routes.user import user_bp
 from src.routes.certificado import certificado_bp
 from src.routes.notificacao import notificacao_bp
+from src.routes.automacao import automacao_bp
 from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
 
+load_dotenv()
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
-app.config['SECRET_KEY'] = 'asdf#FGSgvasgf$5$WGT'
+app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'altere-esta-chave-no-env')
+CORS(
+    app,
+    resources={
+        r"/api/*": {
+            "origins": os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+        }
+    },
+)
 
 app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(certificado_bp, url_prefix='/api')
 app.register_blueprint(notificacao_bp, url_prefix='/api')
+app.register_blueprint(automacao_bp, url_prefix='/api')
 
 # uncomment if you need to use database
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"

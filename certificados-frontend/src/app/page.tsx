@@ -4,12 +4,9 @@ import { useState, useEffect } from 'react';
 import { 
   Shield, 
   AlertTriangle, 
-  Calendar, 
-  Users, 
   Settings, 
   Plus,
   Search,
-  Filter,
   Bell,
   CheckCircle,
   XCircle,
@@ -18,9 +15,13 @@ import {
   User,
   Mail,
   Phone
+  ,Moon
+  ,Sun
+  ,RefreshCw
 } from 'lucide-react';
 import CertificadoModal from '@/components/CertificadoModal';
 import ConfigModal from '@/components/ConfigModal';
+import ReactPaginate from 'react-paginate';
 
 interface Certificado {
   id: number;
@@ -32,6 +33,7 @@ interface Certificado {
   email_contato?: string;
   telefone_contato?: string;
   observacoes?: string;
+  arquivo_drive_id?: string;
   ativo: boolean;
   dias_para_vencimento?: number;
 }
@@ -60,10 +62,26 @@ export default function Home() {
   const [busca, setBusca] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [modalType, setModalType] = useState<'certificado' | 'config' | 'notificacao'>('certificado');
+  const [modoEscuro, setModoEscuro] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
+  const [paginaAtual, setPaginaAtual] = useState(0);
+  const [itensPorPagina, setItensPorPagina] = useState(20);
 
   useEffect(() => {
+    const escuroSalvo = localStorage.getItem('tema') === 'escuro';
+    setModoEscuro(escuroSalvo);
+    document.documentElement.classList.toggle('dark', escuroSalvo);
     carregarDados();
+    const intervalo = window.setInterval(carregarDados, 30000);
+    return () => window.clearInterval(intervalo);
   }, []);
+
+  const alternarTema = () => {
+    const novoTema = !modoEscuro;
+    setModoEscuro(novoTema);
+    document.documentElement.classList.toggle('dark', novoTema);
+    localStorage.setItem('tema', novoTema ? 'escuro' : 'claro');
+  };
 
   const carregarDados = async () => {
     try {
@@ -78,6 +96,7 @@ export default function Home() {
       const respEstatisticas = await fetch('/api/certificados/estatisticas');
       const stats = await respEstatisticas.json();
       setEstatisticas(stats);
+      setUltimaAtualizacao(new Date());
       
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
@@ -108,6 +127,17 @@ export default function Home() {
         return true;
     }
   });
+
+  useEffect(() => {
+    setPaginaAtual(0);
+  }, [busca, filtro, itensPorPagina]);
+
+  const totalPaginas = Math.ceil(certificadosFiltrados.length / itensPorPagina);
+  const inicioPagina = paginaAtual * itensPorPagina;
+  const certificadosDaPagina = certificadosFiltrados.slice(
+    inicioPagina,
+    inicioPagina + itensPorPagina
+  );
 
   const formatarData = (data: string) => {
     return new Date(data).toLocaleDateString('pt-BR');
@@ -153,6 +183,22 @@ export default function Home() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              <div className="hidden sm:flex items-center text-xs text-gray-500">
+                <RefreshCw className="w-4 h-4 mr-1" />
+                {ultimaAtualizacao
+                  ? `Atualizado ${ultimaAtualizacao.toLocaleTimeString('pt-BR')}`
+                  : 'Atualizando...'}
+              </div>
+              <button
+                onClick={alternarTema}
+                className="p-2 text-gray-400 hover:text-gray-600"
+                title={modoEscuro ? 'Usar modo claro' : 'Usar modo escuro'}
+                aria-label={modoEscuro ? 'Usar modo claro' : 'Usar modo escuro'}
+              >
+                {modoEscuro
+                  ? <Sun className="w-6 h-6" />
+                  : <Moon className="w-6 h-6" />}
+              </button>
               <button 
                 onClick={() => { setModalType('notificacao'); setShowModal(true); }}
                 className="p-2 text-gray-400 hover:text-gray-600 relative"
@@ -268,67 +314,102 @@ export default function Home() {
 
         {/* Lista de Certificados */}
         <div className="bg-white rounded-lg shadow overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-200">
-            <h3 className="text-lg font-medium text-gray-900">
-              Certificados ({certificadosFiltrados.length})
-            </h3>
+          <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">
+                Certificados ({certificadosFiltrados.length})
+              </h3>
+              {certificadosFiltrados.length > 0 && (
+                <p className="text-sm text-gray-500">
+                  Exibindo {inicioPagina + 1}–{Math.min(inicioPagina + itensPorPagina, certificadosFiltrados.length)}
+                </p>
+              )}
+            </div>
+            <label className="text-sm text-gray-600 flex items-center gap-2">
+              Itens por página
+              <select
+                value={itensPorPagina}
+                onChange={(evento) => setItensPorPagina(Number(evento.target.value))}
+                className="px-3 py-1.5 border border-gray-300 rounded-lg"
+              >
+                <option value={10}>10</option>
+                <option value={20}>20</option>
+                <option value={50}>50</option>
+              </select>
+            </label>
           </div>
           
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200">
+          <div className="w-full overflow-hidden">
+            <table className="w-full table-fixed divide-y divide-gray-200">
+              <colgroup>
+                <col className="w-[25%]" />
+                <col className="w-[13%]" />
+                <col className="w-[21%]" />
+                <col className="w-[13%]" />
+                <col className="w-[10%]" />
+                <col className="w-[18%]" />
+              </colgroup>
               <thead className="bg-gray-50">
                 <tr>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Cliente
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Documento
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                    Arquivo
+                  </th>
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Vencimento
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Status
                   </th>
-                  <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                  <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
                     Contato
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
-                {certificadosFiltrados.map((cert) => (
+                {certificadosDaPagina.map((cert) => (
                   <tr key={cert.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
+                    <td className="px-3 py-4 align-top">
+                      <div className="flex min-w-0 items-start">
                         <div className="flex-shrink-0">
                           {cert.tipo === 'PJ' ? (
-                            <Building className="w-8 h-8 text-gray-400" />
+                            <Building className="w-6 h-6 text-gray-400" />
                           ) : (
-                            <User className="w-8 h-8 text-gray-400" />
+                            <User className="w-6 h-6 text-gray-400" />
                           )}
                         </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">
+                        <div className="ml-3 min-w-0">
+                          <div className="break-words text-sm font-medium text-gray-900">
                             {cert.nome_empresa}
                           </div>
                           {cert.responsavel && (
-                            <div className="text-sm text-gray-500">
+                            <div className="mt-1 break-words text-xs text-gray-500">
                               {cert.responsavel}
                             </div>
                           )}
                         </div>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="text-sm text-gray-900">{cert.cpf_cnpj}</div>
-                      <div className="text-sm text-gray-500">{cert.tipo}</div>
+                    <td className="px-3 py-4 align-top">
+                      <div className="break-all text-sm text-gray-900">{cert.cpf_cnpj}</div>
+                      <div className="mt-1 text-xs text-gray-500">{cert.tipo}</div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
+                    <td className="px-3 py-4 align-top">
+                      <div className="break-all text-sm text-gray-900">
+                        {cert.arquivo_drive_id || 'Nao informado'}
+                      </div>
+                    </td>
+                    <td className="px-3 py-4 align-top">
                       <div className="text-sm text-gray-900">
                         {formatarData(cert.data_vencimento)}
                       </div>
                       {cert.dias_para_vencimento !== undefined && (
-                        <div className="text-sm text-gray-500">
+                        <div className="mt-1 text-xs text-gray-500">
                           {cert.dias_para_vencimento < 0 
                             ? `${Math.abs(cert.dias_para_vencimento)} dias atrás`
                             : `${cert.dias_para_vencimento} dias restantes`
@@ -336,8 +417,8 @@ export default function Home() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className={`flex items-center ${getStatusColor(cert.dias_para_vencimento)}`}>
+                    <td className="px-3 py-4 align-top">
+                      <div className={`flex items-start ${getStatusColor(cert.dias_para_vencimento)}`}>
                         {getStatusIcon(cert.dias_para_vencimento)}
                         <span className="ml-2 text-sm">
                           {cert.dias_para_vencimento === undefined ? 'Carregando...' :
@@ -347,18 +428,18 @@ export default function Home() {
                         </span>
                       </div>
                     </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                    <td className="px-3 py-4 align-top text-xs text-gray-500">
                       <div className="space-y-1">
                         {cert.email_contato && (
-                          <div className="flex items-center">
-                            <Mail className="w-4 h-4 mr-2" />
-                            {cert.email_contato}
+                          <div className="flex min-w-0 items-start">
+                            <Mail className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span className="min-w-0 break-all">{cert.email_contato}</span>
                           </div>
                         )}
                         {cert.telefone_contato && (
-                          <div className="flex items-center">
-                            <Phone className="w-4 h-4 mr-2" />
-                            {cert.telefone_contato}
+                          <div className="flex min-w-0 items-start">
+                            <Phone className="mr-1.5 mt-0.5 h-3.5 w-3.5 shrink-0" />
+                            <span className="min-w-0 break-all">{cert.telefone_contato}</span>
                           </div>
                         )}
                       </div>
@@ -368,6 +449,27 @@ export default function Home() {
               </tbody>
             </table>
           </div>
+
+          {totalPaginas > 1 && (
+            <div className="px-6 py-4 border-t border-gray-200 flex justify-center">
+              <ReactPaginate
+                previousLabel="Anterior"
+                nextLabel="Próxima"
+                breakLabel="..."
+                pageCount={totalPaginas}
+                forcePage={Math.min(paginaAtual, totalPaginas - 1)}
+                onPageChange={({ selected }) => setPaginaAtual(selected)}
+                marginPagesDisplayed={1}
+                pageRangeDisplayed={3}
+                containerClassName="flex flex-wrap items-center justify-center gap-2 text-sm"
+                pageLinkClassName="block px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-100"
+                previousLinkClassName="block px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-100"
+                nextLinkClassName="block px-3 py-2 rounded-lg border border-gray-300 hover:bg-gray-100"
+                activeLinkClassName="bg-blue-600 text-white border-blue-600 hover:bg-blue-700"
+                disabledClassName="opacity-40 pointer-events-none"
+              />
+            </div>
+          )}
 
           {certificadosFiltrados.length === 0 && (
             <div className="text-center py-12">
@@ -382,7 +484,7 @@ export default function Home() {
       <CertificadoModal
         isOpen={showModal && modalType === 'certificado'}
         onClose={() => setShowModal(false)}
-        onSave={(certificado) => {
+        onSave={() => {
           // Recarregar dados após salvar
           carregarDados();
         }}
