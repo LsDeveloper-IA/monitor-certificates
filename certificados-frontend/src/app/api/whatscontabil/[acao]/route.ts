@@ -14,14 +14,7 @@ async function encaminhar(
   contexto: { params: Promise<{ acao: string }> },
 ) {
   const { acao } = await contexto.params;
-  if (![
-    'status',
-    'historico',
-    'executar',
-    'agendador-status',
-    'agendador-configurar',
-    'saude',
-  ].includes(acao)) {
+  if (!['status', 'validar'].includes(acao)) {
     return NextResponse.json({ erro: 'Acao invalida' }, { status: 404 });
   }
 
@@ -33,23 +26,18 @@ async function encaminhar(
 
   const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
   if (!chaveBackend) {
-    return NextResponse.json(
-      { erro: 'Execucao da automacao nao configurada' },
-      { status: 503 },
-    );
+    return NextResponse.json({ erro: 'Integracao nao configurada' }, { status: 503 });
   }
 
-  const resposta = await fetch(`${backendUrl}/api/automacao/${acao}`, {
+  const resposta = await fetch(`${backendUrl}/api/whatscontabil/${acao}`, {
     method: request.method,
     headers: {
       'Content-Type': 'application/json',
       'X-Automation-Key': chaveBackend,
     },
-    body: request.method === 'POST' ? await request.text() : undefined,
     cache: 'no-store',
   });
-  const texto = await resposta.text();
-  return new NextResponse(texto, {
+  return new NextResponse(await resposta.text(), {
     status: resposta.status,
     headers: { 'Content-Type': 'application/json' },
   });

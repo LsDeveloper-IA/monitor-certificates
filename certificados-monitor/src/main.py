@@ -12,11 +12,15 @@ from src.routes.user import user_bp
 from src.routes.certificado import certificado_bp
 from src.routes.notificacao import notificacao_bp
 from src.routes.automacao import automacao_bp
+from src.routes.whatscontabil import whatscontabil_bp
 from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
+from src.services.agendador_automacao import agendador_automacao
 
 load_dotenv()
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
+modo_debug = os.getenv('FLASK_DEBUG', 'true').strip().lower() in {'1', 'true', 'sim', 'yes'}
+app.config['DEBUG'] = modo_debug
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'altere-esta-chave-no-env')
 CORS(
     app,
@@ -31,6 +35,7 @@ app.register_blueprint(user_bp, url_prefix='/api')
 app.register_blueprint(certificado_bp, url_prefix='/api')
 app.register_blueprint(notificacao_bp, url_prefix='/api')
 app.register_blueprint(automacao_bp, url_prefix='/api')
+app.register_blueprint(whatscontabil_bp, url_prefix='/api')
 
 # uncomment if you need to use database
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
@@ -42,6 +47,11 @@ with app.app_context():
 # Inicializa os serviços
 notificacao_service.init_app(app)
 agendador_service.init_app(app)
+if (
+    agendador_automacao.status()['ativo']
+    and (not modo_debug or os.environ.get('WERKZEUG_RUN_MAIN') == 'true')
+):
+    agendador_automacao.iniciar_monitoramento()
 
 @app.route('/', defaults={'path': ''})
 @app.route('/<path:path>')
@@ -61,4 +71,4 @@ def serve(path):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=5000, debug=modo_debug)

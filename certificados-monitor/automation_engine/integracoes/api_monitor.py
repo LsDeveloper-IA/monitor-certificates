@@ -26,6 +26,9 @@ def _primeiro_telefone(item):
 
 
 def _primeiro_responsavel(item):
+    if item.get("responsavel_certificado"):
+        return item["responsavel_certificado"]
+
     cliente = item.get("dados_cliente") or {}
     for socio in cliente.get("socios") or []:
         if socio.get("nome"):

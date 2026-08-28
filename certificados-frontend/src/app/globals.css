@@ -46,6 +46,11 @@ button:not(:disabled):active,
   transform: scale(0.97);
 }
 
+button:not(:disabled):hover,
+[role="button"]:not([aria-disabled="true"]):hover {
+  transform: translateY(-1px);
+}
+
 button:disabled,
 select:disabled,
 input:disabled,
@@ -67,6 +72,90 @@ tbody tr {
   transition: background-color 160ms ease;
 }
 
+@keyframes surface-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes modal-backdrop-enter {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes modal-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes toast-enter {
+  from {
+    opacity: 0;
+    transform: translateX(14px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+
+@keyframes skeleton-loading {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+
+.surface-enter {
+  animation: surface-enter 280ms ease-out both;
+}
+
+.dashboard-card {
+  transition: transform 180ms ease, box-shadow 180ms ease;
+}
+
+.dashboard-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 24px rgb(15 23 42 / 0.1);
+}
+
+.modal-backdrop {
+  animation: modal-backdrop-enter 180ms ease-out both;
+}
+
+.modal-panel {
+  animation: modal-panel-enter 220ms ease-out both;
+}
+
+.toast-enter {
+  animation: toast-enter 220ms ease-out both;
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e5e7eb 25%, #f3f4f6 50%, #e5e7eb 75%);
+  background-size: 200% 100%;
+  animation: skeleton-loading 1.35s ease-in-out infinite;
+}
+
+.certificate-row:hover,
+.certificate-row:active {
+  transform: none !important;
+}
+
+.certificate-row:focus-visible {
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -76,6 +165,65 @@ tbody tr {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+
+  .dashboard-card:hover,
+  button:not(:disabled):hover,
+  [role="button"]:not([aria-disabled="true"]):hover {
+    transform: none !important;
+  }
+}
+
+/* Contraste reforçado para leitura confortável no tema claro. */
+html:not(.dark) {
+  --background: #f4f7fb;
+  --foreground: #111827;
+}
+
+html:not(.dark) .bg-gray-50 {
+  background-color: #f5f7fa;
+}
+
+html:not(.dark) .text-gray-400 { color: #64748b !important; }
+html:not(.dark) .text-gray-500 { color: #4b5563 !important; }
+html:not(.dark) .text-gray-600 { color: #374151 !important; }
+html:not(.dark) .text-gray-700 { color: #1f2937 !important; }
+html:not(.dark) .text-gray-800 { color: #111827 !important; }
+html:not(.dark) .text-gray-900 { color: #0f172a !important; }
+
+html:not(.dark) .border-gray-200,
+html:not(.dark) .border-gray-300,
+html:not(.dark) .border-b,
+html:not(.dark) .border-t {
+  border-color: #cbd5e1 !important;
+}
+
+html:not(.dark) input,
+html:not(.dark) select,
+html:not(.dark) textarea {
+  background-color: #ffffff;
+  color: #111827;
+  border-color: #94a3b8;
+}
+
+html:not(.dark) input::placeholder,
+html:not(.dark) textarea::placeholder {
+  color: #64748b;
+  opacity: 1;
+}
+
+html:not(.dark) .shadow,
+html:not(.dark) .shadow-sm {
+  box-shadow: 0 2px 8px rgb(15 23 42 / 0.12);
+}
+
+html:not(.dark) tbody tr:hover,
+html:not(.dark) .notification-item:hover,
+html:not(.dark) .certificate-mobile-card:hover {
+  background-color: #eef4ff !important;
+}
+
+html:not(.dark) .notification-unread {
+  background-color: #f0f6ff;
 }
 
 html.dark {
@@ -104,4 +252,38 @@ html.dark textarea {
   background-color: #1f2937;
   color: #f3f4f6;
 }
-html.dark tr:hover { background-color: #1f2937 !important; }
+html.dark tbody tr:hover {
+  background-color: #1e293b !important;
+  box-shadow: inset 3px 0 0 #38bdf8;
+}
+
+html.dark .certificate-sort-button:hover {
+  color: #f8fafc !important;
+}
+
+html.dark .certificate-mobile-card:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .notification-item:hover {
+  background-color: #1e293b !important;
+}
+
+html.dark .notification-unread {
+  background-color: rgb(30 64 175 / 0.13);
+}
+
+html.dark .dashboard-card:hover {
+  box-shadow: 0 12px 28px rgb(0 0 0 / 0.32);
+}
+
+html.dark .skeleton {
+  background: linear-gradient(90deg, #1f2937 25%, #334155 50%, #1f2937 75%);
+  background-size: 200% 100%;
+}
+
+html.dark .toast-enter {
+  background-color: #1e293b !important;
+  border-color: #475569 !important;
+  color: #f8fafc !important;
+}
