@@ -283,6 +283,89 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
         "message_ids": [],
     }
 
+    nome_template = os.getenv("WHATSCONTABIL_TEMPLATE_TESTE", "").strip()
+    if not nome_template:
+        resumo["falhas"] = 1
+        resumo["detalhes_falhas"].append({
+            "empresa": "Monitor de Certificados",
+            "email": f"whatsapp:{destinatario}",
+            "erro": "Template oficial de certificados nao configurado",
+        })
+        print(
+            "Envio oficial bloqueado: configure o nome do template "
+            "aprovado em WHATSCONTABIL_TEMPLATE_TESTE."
+        )
+        return resumo
+
+    nome_destinatario = os.getenv(
+        "WHATSCONTABIL_NOME_DESTINATARIO_TESTE",
+        "Equipe Office",
+    ).strip() or "Equipe Office"
+    transmissoes = []
+
+    for alerta in com_contato:
+        transmissoes.append((
+            "cliente",
+            f"Cliente - {alerta.get('empresa') or 'Empresa nao informada'}",
+            _montar_mensagem_cliente(alerta),
+            [alerta],
+        ))
+
+    for mensagem, itens in _montar_relatorios(
+        com_contato,
+        "RELATORIO PARA O FUNCIONARIO RESPONSAVEL",
+        _montar_bloco_responsavel,
+    ):
+        transmissoes.append((
+            "responsavel",
+            "Funcionario responsavel",
+            mensagem,
+            itens,
+        ))
+
+    for mensagem, itens in _montar_relatorios(
+        para_equipe,
+        "PENDENCIAS DE CONTATO PARA A EQUIPE",
+        _montar_bloco_equipe,
+    ):
+        transmissoes.append(("equipe", nome_destinatario, mensagem, itens))
+
+    print(f"Templates de teste preparados: {len(transmissoes)}")
+    for numero, (tipo, nome, mensagem, itens) in enumerate(
+        transmissoes,
+        start=1,
+    ):
+        if numero > 1:
+            sleep(5.1)
+        try:
+            resultado = enviar_template(
+                pasta_projeto,
+                destinatario,
+                nome_template,
+                whatsapp_id,
+                [nome, mensagem],
+            )
+            resposta = resultado.get("resposta") or {}
+            resumo["message_ids"].extend(resposta.get("messageIds") or [])
+            resumo["enviados"] += 1
+            print(
+                f"Template de {tipo} {numero}/{len(transmissoes)} aceito "
+                f"pela WhatsContabil ({len(itens)} certificado(s))."
+            )
+        except (ErroWhatsContabil, OSError) as erro:
+            resumo["falhas"] += 1
+            resumo["detalhes_falhas"].append({
+                "empresa": ", ".join(
+                    item.get("empresa") or "Empresa nao informada"
+                    for item in itens
+                ),
+                "email": f"whatsapp:{destinatario}",
+                "erro": str(erro),
+            })
+            print(f"Falha no template de {tipo}: {erro}")
+
+    return resumo
+
     # A conexão usada no ambiente de teste é oficial (Cloud API da Meta).
     # Nesse tipo de conexão, texto livre não pode iniciar uma conversa. O
     # template aprovado é enviado como notificação resumida; os detalhes

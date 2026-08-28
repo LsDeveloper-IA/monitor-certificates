@@ -56,14 +56,59 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
                 2,
             )
 
-        enviar_template_oficial.assert_called_once()
+        self.assertEqual(enviar_template_oficial.call_count, 2)
+        for chamada in enviar_template_oficial.call_args_list:
+            self.assertEqual(chamada.args[1], "558596490370")
+        self.assertTrue(
+            enviar_template_oficial.call_args_list[0].args[4][0].startswith(
+                "Cliente - EMPRESA TESTE"
+            )
+        )
         self.assertEqual(
-            enviar_template_oficial.call_args.args[1],
-            "558596490370",
+            enviar_template_oficial.call_args_list[1].args[4][0],
+            "Funcionario responsavel",
         )
         enviar_texto.assert_not_called()
-        self.assertEqual(resumo["enviados"], 1)
+        self.assertEqual(resumo["enviados"], 2)
         self.assertEqual(resumo["duplicados"], 0)
+
+    @patch.object(alertas_whatscontabil, "sleep")
+    @patch.object(alertas_whatscontabil, "enviar_template", return_value={
+        "resposta": {"message": "Mensagem enviada com sucesso!"}
+    })
+    def test_empresa_sem_contato_vai_somente_para_equipe(
+        self,
+        enviar_template_oficial,
+        _sleep,
+    ):
+        alerta_sem_contato = {
+            **self.alerta,
+            "email": None,
+            "dados_cliente": {},
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_NUMERO_TESTE": "558596490370",
+                "WHATSCONTABIL_TEMPLATE_TESTE": "alerta_certificado_teste",
+                "WHATSCONTABIL_NOME_DESTINATARIO_TESTE": "Equipe Office",
+            },
+            clear=False,
+        ):
+            resumo = alertas_whatscontabil.enviar_alertas_internos(
+                [alerta_sem_contato],
+                PASTA_MOTOR,
+                "5585999999999",
+                2,
+            )
+
+        enviar_template_oficial.assert_called_once()
+        chamada = enviar_template_oficial.call_args
+        self.assertEqual(chamada.args[1], "558596490370")
+        self.assertEqual(chamada.args[4][0], "Equipe Office")
+        self.assertIn("PENDENCIAS DE CONTATO", chamada.args[4][1])
+        self.assertEqual(resumo["enviados"], 1)
 
     @patch.object(alertas_whatscontabil, "enviar_mensagem_texto")
     @patch.object(alertas_whatscontabil, "alerta_ja_enviado", return_value=True)
