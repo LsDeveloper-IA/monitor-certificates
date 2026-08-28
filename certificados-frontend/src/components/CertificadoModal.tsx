@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { X, Save, Building, User } from 'lucide-react';
 
 interface CertificadoModalProps {
@@ -8,6 +8,7 @@ interface CertificadoModalProps {
   onClose: () => void;
   onSave: (certificado: CertificadoFormData & { id?: number }) => void;
   certificado?: Partial<CertificadoFormData> & { id: number };
+  somenteLeitura?: boolean;
 }
 
 interface CertificadoFormData {
@@ -21,7 +22,7 @@ interface CertificadoFormData {
   observacoes: string;
 }
 
-export default function CertificadoModal({ isOpen, onClose, onSave, certificado }: CertificadoModalProps) {
+export default function CertificadoModal({ isOpen, onClose, onSave, certificado, somenteLeitura = false }: CertificadoModalProps) {
   const [formData, setFormData] = useState<CertificadoFormData>({
     nome_empresa: certificado?.nome_empresa || '',
     cpf_cnpj: certificado?.cpf_cnpj || '',
@@ -35,6 +36,21 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setFormData({
+      nome_empresa: certificado?.nome_empresa || '',
+      cpf_cnpj: certificado?.cpf_cnpj || '',
+      tipo: certificado?.tipo || 'PJ',
+      data_vencimento: certificado?.data_vencimento || '',
+      responsavel: certificado?.responsavel || '',
+      email_contato: certificado?.email_contato || '',
+      telefone_contato: certificado?.telefone_contato || '',
+      observacoes: certificado?.observacoes || '',
+    });
+    setErrors({});
+  }, [certificado, isOpen]);
 
   if (!isOpen) return null;
 
@@ -104,11 +120,11 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-      <div className="bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+      <div className="modal-panel bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
           <h3 className="text-lg font-semibold text-gray-900">
-            {certificado ? 'Editar Certificado' : 'Novo Certificado'}
+            {somenteLeitura ? 'Detalhes do Certificado' : certificado ? 'Editar Certificado' : 'Novo Certificado'}
           </h3>
           <button
             onClick={onClose}
@@ -125,7 +141,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
             </div>
           )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          <fieldset disabled={somenteLeitura} className="grid grid-cols-1 md:grid-cols-2 gap-6 disabled:opacity-90">
             <div className="md:col-span-2">
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Tipo de Pessoa
@@ -269,7 +285,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
                 placeholder="Observações adicionais..."
               />
             </div>
-          </div>
+          </fieldset>
 
           <div className="flex justify-end space-x-4 pt-6 border-t">
             <button
@@ -277,20 +293,22 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado 
               onClick={onClose}
               className="px-4 py-2 text-gray-700 bg-gray-200 rounded-lg hover:bg-gray-300"
             >
-              Cancelar
+              {somenteLeitura ? 'Fechar' : 'Cancelar'}
             </button>
-            <button
-              type="submit"
-              disabled={loading}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
-            >
-              {loading ? (
-                <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
-              ) : (
-                <Save className="w-4 h-4 mr-2" />
-              )}
-              {loading ? 'Salvando...' : 'Salvar'}
-            </button>
+            {!somenteLeitura && (
+              <button
+                type="submit"
+                disabled={loading}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 flex items-center"
+              >
+                {loading ? (
+                  <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                ) : (
+                  <Save className="w-4 h-4 mr-2" />
+                )}
+                {loading ? 'Salvando...' : 'Salvar'}
+              </button>
+            )}
           </div>
         </form>
       </div>

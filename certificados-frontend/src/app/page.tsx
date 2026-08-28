@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
 import { 
   Shield, 
@@ -15,14 +15,20 @@ import {
   Building,
   User,
   Mail,
-  Phone
-  ,Moon
-  ,Sun
-  ,RefreshCw
-  ,FileWarning
+  Phone,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  X,
+  Moon,
+  Sun,
+  RefreshCw,
+  FileWarning
 } from 'lucide-react';
 import CertificadoModal from '@/components/CertificadoModal';
 import ConfigModal from '@/components/ConfigModal';
+import AutomationStatusBanner from '@/components/AutomationStatusBanner';
+import AutomationActivityPanel from '@/components/AutomationActivityPanel';
 import ReactPaginate from 'react-paginate';
 
 interface Certificado {
@@ -49,6 +55,103 @@ interface Estatisticas {
   pessoa_fisica: number;
 }
 
+type TipoToast = 'success' | 'error' | 'info';
+type TipoPendencia = 'urgente' | 'vencendo' | 'vencido' | 'sem_contato' | 'erro';
+type FiltroPendencia = 'todas' | TipoPendencia;
+
+interface ToastState {
+  mensagem: string;
+  tipo: TipoToast;
+}
+
+interface Pendencia {
+  id: string;
+  tipo: TipoPendencia;
+  titulo: string;
+  descricao: string;
+  prioridade: number;
+  certificado: Certificado;
+}
+
+type ColunaOrdenacao =
+  | 'empresa'
+  | 'documento'
+  | 'arquivo'
+  | 'vencimento'
+  | 'status'
+  | 'contato';
+type DirecaoOrdenacao = 'asc' | 'desc';
+
+const somenteDigitos = (valor: string) => valor.replace(/\D/g, '');
+
+const formatarDocumento = (documento: string, tipo: 'PJ' | 'PF') => {
+  const numeros = somenteDigitos(documento);
+
+  if (tipo === 'PJ' && numeros.length === 14) {
+    return numeros.replace(
+      /^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/,
+      '$1.$2.$3/$4-$5'
+    );
+  }
+
+  if (tipo === 'PF' && numeros.length === 11) {
+    return numeros.replace(
+      /^(\d{3})(\d{3})(\d{3})(\d{2})$/,
+      '$1.$2.$3-$4'
+    );
+  }
+
+  return documento;
+};
+
+const filtrosValidos = new Set([
+  'todos',
+  'vencendo',
+  'urgente',
+  'vencidos',
+  'sem_contato',
+  'erro',
+  'pj',
+  'pf',
+]);
+const CHAVE_PENDENCIAS_LIDAS = 'certificados-monitor:pendencias-lidas';
+
+const possuiErroLeitura = (certificado: Certificado) => {
+  const texto = certificado.observacoes?.toLocaleLowerCase('pt-BR') || '';
+  return ['erro', 'senha', 'não encontrado', 'nao encontrado', 'inválido', 'invalido']
+    .some((termo) => texto.includes(termo));
+};
+
+function DashboardSkeleton() {
+  return (
+    <div className="min-h-screen bg-gray-50" aria-label="Carregando certificados">
+      <div className="h-16 border-b border-gray-200 bg-white" />
+      <div className="mx-auto max-w-7xl space-y-6 px-4 py-8 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-4">
+          {[0, 1, 2, 3].map((item) => (
+            <div key={item} className="h-28 rounded-lg bg-white p-6 shadow">
+              <div className="skeleton h-4 w-24 rounded" />
+              <div className="skeleton mt-4 h-8 w-16 rounded" />
+            </div>
+          ))}
+        </div>
+        <div className="h-24 rounded-lg bg-white p-6 shadow">
+          <div className="skeleton h-10 w-full rounded-lg" />
+        </div>
+        <div className="rounded-lg bg-white p-6 shadow">
+          {[0, 1, 2, 3, 4].map((item) => (
+            <div key={item} className="flex gap-6 border-b border-gray-200 py-5 last:border-0">
+              <div className="skeleton h-4 w-1/3 rounded" />
+              <div className="skeleton h-4 w-1/4 rounded" />
+              <div className="skeleton h-4 flex-1 rounded" />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Home() {
   const [certificados, setCertificados] = useState<Certificado[]>([]);
   const [estatisticas, setEstatisticas] = useState<Estatisticas>({
@@ -60,6 +163,7 @@ export default function Home() {
     pessoa_fisica: 0
   });
   const [loading, setLoading] = useState(true);
+  const [atualizando, setAtualizando] = useState(false);
   const [filtro, setFiltro] = useState('todos');
   const [busca, setBusca] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -68,15 +172,80 @@ export default function Home() {
   const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
   const [paginaAtual, setPaginaAtual] = useState(0);
   const [itensPorPagina, setItensPorPagina] = useState(20);
+  const [ordenacao, setOrdenacao] = useState<{
+    coluna: ColunaOrdenacao | null;
+    direcao: DirecaoOrdenacao;
+  }>({ coluna: null, direcao: 'asc' });
+  const [certificadoSelecionado, setCertificadoSelecionado] = useState<Certificado | null>(null);
+  const [toast, setToast] = useState<ToastState | null>(null);
+  const [filtroNotificacao, setFiltroNotificacao] = useState<FiltroPendencia>('todas');
+  const [abaCentral, setAbaCentral] = useState<'pendencias' | 'atividade'>('pendencias');
+  const [pendenciasLidas, setPendenciasLidas] = useState<Set<string>>(new Set());
+  const [urlInicializada, setUrlInicializada] = useState(false);
+  const toastTimerRef = useRef<number | null>(null);
+  const ignorarPrimeiroResetRef = useRef(true);
+
+  const mostrarToast = (mensagem: string, tipo: TipoToast = 'info') => {
+    setToast({ mensagem, tipo });
+    if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = window.setTimeout(() => setToast(null), 4500);
+  };
 
   useEffect(() => {
     const escuroSalvo = localStorage.getItem('tema') === 'escuro';
     setModoEscuro(escuroSalvo);
     document.documentElement.classList.toggle('dark', escuroSalvo);
+    try {
+      const idsLidos = JSON.parse(localStorage.getItem(CHAVE_PENDENCIAS_LIDAS) || '[]');
+      if (Array.isArray(idsLidos)) setPendenciasLidas(new Set(idsLidos.map(String)));
+    } catch {
+      localStorage.removeItem(CHAVE_PENDENCIAS_LIDAS);
+    }
+
+    const parametros = new URLSearchParams(window.location.search);
+    const filtroUrl = parametros.get('filtro');
+    const colunaUrl = parametros.get('ordem') as ColunaOrdenacao | null;
+    const direcaoUrl = parametros.get('direcao') as DirecaoOrdenacao | null;
+    const paginaUrl = Number(parametros.get('pagina'));
+    const itensUrl = Number(parametros.get('itens'));
+    setBusca(parametros.get('busca') || '');
+    if (filtroUrl && filtrosValidos.has(filtroUrl)) setFiltro(filtroUrl);
+    if (colunaUrl && ['empresa', 'documento', 'arquivo', 'vencimento', 'status', 'contato'].includes(colunaUrl)) {
+      setOrdenacao({ coluna: colunaUrl, direcao: direcaoUrl === 'desc' ? 'desc' : 'asc' });
+    }
+    if (paginaUrl > 0) setPaginaAtual(paginaUrl - 1);
+    if ([10, 20, 50].includes(itensUrl)) setItensPorPagina(itensUrl);
+    setUrlInicializada(true);
     carregarDados();
-    const intervalo = window.setInterval(carregarDados, 30000);
-    return () => window.clearInterval(intervalo);
+
+    return () => {
+      if (toastTimerRef.current) window.clearTimeout(toastTimerRef.current);
+    };
   }, []);
+
+  useEffect(() => {
+    if (!urlInicializada) return;
+    const parametros = new URLSearchParams();
+    if (busca) parametros.set('busca', busca);
+    if (filtro !== 'todos') parametros.set('filtro', filtro);
+    if (paginaAtual > 0) parametros.set('pagina', String(paginaAtual + 1));
+    if (itensPorPagina !== 20) parametros.set('itens', String(itensPorPagina));
+    if (ordenacao.coluna) {
+      parametros.set('ordem', ordenacao.coluna);
+      parametros.set('direcao', ordenacao.direcao);
+    }
+    const consulta = parametros.toString();
+    window.history.replaceState(null, '', consulta ? `?${consulta}` : window.location.pathname);
+  }, [busca, filtro, paginaAtual, itensPorPagina, ordenacao, urlInicializada]);
+
+  useEffect(() => {
+    if (!showModal) return;
+    const fecharComEscape = (evento: KeyboardEvent) => {
+      if (evento.key === 'Escape') setShowModal(false);
+    };
+    window.addEventListener('keydown', fecharComEscape);
+    return () => window.removeEventListener('keydown', fecharComEscape);
+  }, [showModal]);
 
   const alternarTema = () => {
     const novoTema = !modoEscuro;
@@ -85,42 +254,54 @@ export default function Home() {
     localStorage.setItem('tema', novoTema ? 'escuro' : 'claro');
   };
 
-  const carregarDados = async () => {
+  const carregarDados = async (exibirTelaCarregamento = true) => {
     try {
-      setLoading(true);
+      if (exibirTelaCarregamento) setLoading(true);
+      setAtualizando(true);
       
       // Carregar certificados
       const respCertificados = await fetch('/api/certificados');
-      const certificados = await respCertificados.json();
-      setCertificados(certificados);
+      if (!respCertificados.ok) throw new Error('Não foi possível carregar os certificados.');
+      const dadosCertificados = await respCertificados.json();
+      if (!Array.isArray(dadosCertificados)) throw new Error('Resposta inválida ao carregar certificados.');
+      setCertificados(dadosCertificados);
       
       // Carregar estatísticas
       const respEstatisticas = await fetch('/api/certificados/estatisticas');
+      if (!respEstatisticas.ok) throw new Error('Não foi possível carregar as estatísticas.');
       const stats = await respEstatisticas.json();
       setEstatisticas(stats);
       setUltimaAtualizacao(new Date());
       
     } catch (error) {
       console.error('Erro ao carregar dados:', error);
+      mostrarToast(error instanceof Error ? error.message : 'Erro ao carregar os dados.', 'error');
     } finally {
       setLoading(false);
+      setAtualizando(false);
     }
   };
 
   const certificadosFiltrados = certificados.filter(cert => {
+    const buscaDocumento = somenteDigitos(busca);
     const matchBusca = cert.nome_empresa.toLowerCase().includes(busca.toLowerCase()) ||
-                      cert.cpf_cnpj.includes(busca) ||
+                      (buscaDocumento.length > 0 &&
+                        somenteDigitos(cert.cpf_cnpj).includes(buscaDocumento)) ||
                       (cert.responsavel?.toLowerCase().includes(busca.toLowerCase()) ?? false);
     
     if (!matchBusca) return false;
     
     switch (filtro) {
       case 'vencendo':
-        return (cert.dias_para_vencimento ?? 0) <= 30 && (cert.dias_para_vencimento ?? 0) > 0;
+        return cert.dias_para_vencimento !== undefined && cert.dias_para_vencimento <= 30 && cert.dias_para_vencimento >= 0;
       case 'urgente':
-        return (cert.dias_para_vencimento ?? 0) <= 15 && (cert.dias_para_vencimento ?? 0) > 0;
+        return cert.dias_para_vencimento !== undefined && cert.dias_para_vencimento <= 15 && cert.dias_para_vencimento >= 0;
       case 'vencidos':
         return (cert.dias_para_vencimento ?? 0) < 0;
+      case 'sem_contato':
+        return !cert.email_contato && !cert.telefone_contato;
+      case 'erro':
+        return possuiErroLeitura(cert);
       case 'pj':
         return cert.tipo === 'PJ';
       case 'pf':
@@ -130,13 +311,68 @@ export default function Home() {
     }
   });
 
+  const valorOrdenacao = (cert: Certificado, coluna: ColunaOrdenacao) => {
+    switch (coluna) {
+      case 'empresa':
+        return cert.nome_empresa;
+      case 'documento':
+        return somenteDigitos(cert.cpf_cnpj);
+      case 'arquivo':
+        return cert.arquivo_drive_id || '';
+      case 'vencimento':
+        return new Date(cert.data_vencimento).getTime();
+      case 'status':
+        return cert.dias_para_vencimento ?? Number.POSITIVE_INFINITY;
+      case 'contato':
+        return cert.email_contato || cert.telefone_contato || '';
+    }
+  };
+
+  const certificadosOrdenados = [...certificadosFiltrados].sort((a, b) => {
+    if (!ordenacao.coluna) return 0;
+    const valorA = valorOrdenacao(a, ordenacao.coluna);
+    const valorB = valorOrdenacao(b, ordenacao.coluna);
+    const comparacao =
+      typeof valorA === 'number' && typeof valorB === 'number'
+        ? valorA - valorB
+        : String(valorA).localeCompare(String(valorB), 'pt-BR', {
+            numeric: true,
+            sensitivity: 'base',
+          });
+    return ordenacao.direcao === 'asc' ? comparacao : -comparacao;
+  });
+
+  const alternarOrdenacao = (coluna: ColunaOrdenacao) => {
+    setOrdenacao((atual) => ({
+      coluna,
+      direcao:
+        atual.coluna === coluna && atual.direcao === 'asc' ? 'desc' : 'asc',
+    }));
+  };
+
+  const iconeOrdenacao = (coluna: ColunaOrdenacao) => {
+    if (ordenacao.coluna !== coluna) {
+      return <ArrowUpDown className="h-3.5 w-3.5 opacity-50" />;
+    }
+    return ordenacao.direcao === 'asc' ? (
+      <ArrowUp className="h-3.5 w-3.5" />
+    ) : (
+      <ArrowDown className="h-3.5 w-3.5" />
+    );
+  };
+
   useEffect(() => {
+    if (!urlInicializada) return;
+    if (ignorarPrimeiroResetRef.current) {
+      ignorarPrimeiroResetRef.current = false;
+      return;
+    }
     setPaginaAtual(0);
-  }, [busca, filtro, itensPorPagina]);
+  }, [busca, filtro, itensPorPagina, ordenacao, urlInicializada]);
 
   const totalPaginas = Math.ceil(certificadosFiltrados.length / itensPorPagina);
   const inicioPagina = paginaAtual * itensPorPagina;
-  const certificadosDaPagina = certificadosFiltrados.slice(
+  const certificadosDaPagina = certificadosOrdenados.slice(
     inicioPagina,
     inicioPagina + itensPorPagina
   );
@@ -161,15 +397,181 @@ export default function Home() {
     return <CheckCircle className="w-4 h-4" />;
   };
 
+  const filtrosRapidos = [
+    { id: 'todos', label: 'Todos', quantidade: certificados.length },
+    {
+      id: 'vencendo',
+      label: 'Até 30 dias',
+      quantidade: certificados.filter((cert) => cert.dias_para_vencimento !== undefined && cert.dias_para_vencimento >= 0 && cert.dias_para_vencimento <= 30).length,
+    },
+    {
+      id: 'urgente',
+      label: 'Até 15 dias',
+      quantidade: certificados.filter((cert) => cert.dias_para_vencimento !== undefined && cert.dias_para_vencimento >= 0 && cert.dias_para_vencimento <= 15).length,
+    },
+    {
+      id: 'vencidos',
+      label: 'Vencidos',
+      quantidade: certificados.filter((cert) => (cert.dias_para_vencimento ?? 0) < 0).length,
+    },
+    {
+      id: 'sem_contato',
+      label: 'Sem contato',
+      quantidade: certificados.filter((cert) => !cert.email_contato && !cert.telefone_contato).length,
+    },
+    {
+      id: 'erro',
+      label: 'Erro de leitura',
+      quantidade: certificados.filter(possuiErroLeitura).length,
+    },
+  ];
+
+  const pendencias: Pendencia[] = certificados
+    .flatMap((certificado) => {
+      const itens: Pendencia[] = [];
+      const dias = certificado.dias_para_vencimento;
+
+      if (dias !== undefined) {
+        if (dias < 0) {
+          itens.push({
+            id: `${certificado.id}-vencido`,
+            tipo: 'vencido',
+            titulo: 'Certificado vencido',
+            descricao: `Venceu há ${Math.abs(dias)} dias`,
+            prioridade: 0,
+            certificado,
+          });
+        } else if (dias <= 15) {
+          itens.push({
+            id: `${certificado.id}-urgente`,
+            tipo: 'urgente',
+            titulo: 'Renovação urgente',
+            descricao: dias === 0 ? 'Vence hoje' : `Vence em ${dias} dias`,
+            prioridade: 1,
+            certificado,
+          });
+        } else if (dias <= 30) {
+          itens.push({
+            id: `${certificado.id}-vencendo`,
+            tipo: 'vencendo',
+            titulo: 'Vencimento próximo',
+            descricao: `Vence em ${dias} dias`,
+            prioridade: 2,
+            certificado,
+          });
+        }
+      }
+
+      if (!certificado.email_contato && !certificado.telefone_contato) {
+        itens.push({
+          id: `${certificado.id}-sem-contato`,
+          tipo: 'sem_contato',
+          titulo: 'Contato não localizado',
+          descricao: 'Empresa sem telefone e e-mail cadastrados',
+          prioridade: 3,
+          certificado,
+        });
+      }
+
+      if (possuiErroLeitura(certificado)) {
+        itens.push({
+          id: `${certificado.id}-erro`,
+          tipo: 'erro',
+          titulo: 'Erro de leitura',
+          descricao: certificado.observacoes || 'Verifique o certificado e a senha',
+          prioridade: 4,
+          certificado,
+        });
+      }
+
+      return itens;
+    })
+    .sort((a, b) => a.prioridade - b.prioridade || a.certificado.nome_empresa.localeCompare(b.certificado.nome_empresa, 'pt-BR'));
+
+  const pendenciasExibidas = filtroNotificacao === 'todas'
+    ? pendencias
+    : pendencias.filter((item) => item.tipo === filtroNotificacao);
+  const pendenciasNaoLidas = pendencias.filter((item) => !pendenciasLidas.has(item.id));
+
+  useEffect(() => {
+    if (loading) return;
+    const idsAtuais = new Set(pendencias.map((item) => item.id));
+    setPendenciasLidas((idsAnteriores) => {
+      const idsValidos = new Set([...idsAnteriores].filter((id) => idsAtuais.has(id)));
+      if (idsValidos.size === idsAnteriores.size) return idsAnteriores;
+      localStorage.setItem(CHAVE_PENDENCIAS_LIDAS, JSON.stringify([...idsValidos]));
+      return idsValidos;
+    });
+  }, [certificados, loading]);
+
+  const resumoPendencias: Array<{ id: FiltroPendencia; label: string; quantidade: number }> = [
+    { id: 'todas', label: 'Todas', quantidade: pendencias.length },
+    { id: 'urgente', label: 'Urgentes', quantidade: pendencias.filter((item) => item.tipo === 'urgente').length },
+    { id: 'vencendo', label: 'Até 30 dias', quantidade: pendencias.filter((item) => item.tipo === 'vencendo').length },
+    { id: 'vencido', label: 'Vencidos', quantidade: pendencias.filter((item) => item.tipo === 'vencido').length },
+    { id: 'sem_contato', label: 'Sem contato', quantidade: pendencias.filter((item) => item.tipo === 'sem_contato').length },
+    { id: 'erro', label: 'Erros', quantidade: pendencias.filter((item) => item.tipo === 'erro').length },
+  ];
+
+  const estiloPendencia = (tipo: TipoPendencia) => {
+    switch (tipo) {
+      case 'vencido':
+      case 'urgente':
+        return 'border-red-200 bg-red-50 text-red-700';
+      case 'vencendo':
+        return 'border-yellow-200 bg-yellow-50 text-yellow-700';
+      case 'sem_contato':
+        return 'border-blue-200 bg-blue-50 text-blue-700';
+      case 'erro':
+        return 'border-orange-200 bg-orange-50 text-orange-700';
+    }
+  };
+
+  const aplicarPendenciasNaTabela = () => {
+    const mapa: Record<FiltroPendencia, string> = {
+      todas: 'todos',
+      urgente: 'urgente',
+      vencendo: 'vencendo',
+      vencido: 'vencidos',
+      sem_contato: 'sem_contato',
+      erro: 'erro',
+    };
+    setFiltro(mapa[filtroNotificacao]);
+    setShowModal(false);
+  };
+
+  const salvarPendenciasLidas = (novosIds: Set<string>) => {
+    setPendenciasLidas(novosIds);
+    localStorage.setItem(CHAVE_PENDENCIAS_LIDAS, JSON.stringify([...novosIds]));
+  };
+
+  const marcarPendenciaComoLida = (id: string) => {
+    if (pendenciasLidas.has(id)) return;
+    const novosIds = new Set(pendenciasLidas);
+    novosIds.add(id);
+    salvarPendenciasLidas(novosIds);
+  };
+
+  const marcarTodasPendenciasComoLidas = () => {
+    const novosIds = new Set(pendenciasLidas);
+    pendencias.forEach((item) => novosIds.add(item.id));
+    salvarPendenciasLidas(novosIds);
+  };
+
+  const limparFiltros = () => {
+    setBusca('');
+    setFiltro('todos');
+    setOrdenacao({ coluna: null, direcao: 'asc' });
+  };
+
+  const abrirCertificado = (certificado: Certificado) => {
+    setCertificadoSelecionado(certificado);
+    setModalType('certificado');
+    setShowModal(true);
+  };
+
   if (loading) {
-    return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
-        <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto mb-4"></div>
-          <p className="text-gray-600">Carregando dados...</p>
-        </div>
-      </div>
-    );
+    return <DashboardSkeleton />;
   }
 
   return (
@@ -193,12 +595,20 @@ export default function Home() {
                 <FileWarning className="h-4 w-4" />
                 <span className="hidden md:inline">Certificados vencidos</span>
               </Link>
-              <div className="hidden sm:flex items-center text-xs text-gray-500">
-                <RefreshCw className="w-4 h-4 mr-1" />
-                {ultimaAtualizacao
-                  ? `Atualizado ${ultimaAtualizacao.toLocaleTimeString('pt-BR')}`
-                  : 'Atualizando...'}
-              </div>
+              <button
+                type="button"
+                onClick={() => carregarDados(false)}
+                disabled={atualizando}
+                className="hidden sm:flex items-center rounded-lg px-2 py-1 text-xs text-gray-500 hover:bg-gray-100 hover:text-gray-700 disabled:opacity-50"
+                title="Atualizar dados manualmente"
+              >
+                <RefreshCw className={`w-4 h-4 mr-1 ${atualizando ? 'animate-spin' : ''}`} />
+                {atualizando
+                  ? 'Atualizando...'
+                  : ultimaAtualizacao
+                    ? `Atualizado ${ultimaAtualizacao.toLocaleTimeString('pt-BR')}`
+                    : 'Atualizar dados'}
+              </button>
               <button
                 onClick={alternarTema}
                 className="p-2 text-gray-400 hover:text-gray-600"
@@ -210,13 +620,15 @@ export default function Home() {
                   : <Moon className="w-6 h-6" />}
               </button>
               <button 
-                onClick={() => { setModalType('notificacao'); setShowModal(true); }}
+                onClick={() => { setAbaCentral('pendencias'); setFiltroNotificacao('todas'); setModalType('notificacao'); setShowModal(true); }}
                 className="p-2 text-gray-400 hover:text-gray-600 relative"
+                title="Abrir central de pendências"
+                aria-label={`Abrir central de pendências: ${pendenciasNaoLidas.length} não lidas`}
               >
                 <Bell className="w-6 h-6" />
-                {(estatisticas.vencendo_15_dias > 0) && (
-                  <span className="absolute -top-1 -right-1 bg-red-500 text-white text-xs rounded-full h-5 w-5 flex items-center justify-center">
-                    {estatisticas.vencendo_15_dias}
+                {pendenciasNaoLidas.length > 0 && (
+                  <span className="absolute -right-1 -top-1 flex min-h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-semibold text-white">
+                    {pendenciasNaoLidas.length > 99 ? '99+' : pendenciasNaoLidas.length}
                   </span>
                 )}
               </button>
@@ -232,9 +644,22 @@ export default function Home() {
       </header>
 
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+        <AutomationStatusBanner
+          onComplete={() => {
+            mostrarToast('Automação concluída. Os dados foram atualizados.', 'success');
+            return carregarDados(false);
+          }}
+          onOpen={() => { setModalType('config'); setShowModal(true); }}
+        />
+
         {/* Cards de Estatísticas */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-          <div className="bg-white p-6 rounded-lg shadow">
+          <button
+            type="button"
+            onClick={() => setFiltro('todos')}
+            aria-pressed={filtro === 'todos'}
+            className={`dashboard-card surface-enter w-full rounded-lg bg-white p-6 text-left shadow ${filtro === 'todos' ? 'ring-2 ring-blue-500' : ''}`}
+          >
             <div className="flex items-center">
               <div className="p-2 bg-blue-100 rounded-lg">
                 <Shield className="w-6 h-6 text-blue-600" />
@@ -244,9 +669,14 @@ export default function Home() {
                 <p className="text-2xl font-semibold text-gray-900">{estatisticas.total}</p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <button
+            type="button"
+            onClick={() => setFiltro('vencendo')}
+            aria-pressed={filtro === 'vencendo'}
+            className={`dashboard-card surface-enter w-full rounded-lg bg-white p-6 text-left shadow ${filtro === 'vencendo' ? 'ring-2 ring-yellow-500' : ''}`}
+          >
             <div className="flex items-center">
               <div className="p-2 bg-yellow-100 rounded-lg">
                 <Clock className="w-6 h-6 text-yellow-600" />
@@ -256,9 +686,14 @@ export default function Home() {
                 <p className="text-2xl font-semibold text-gray-900">{estatisticas.vencendo_30_dias}</p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <button
+            type="button"
+            onClick={() => setFiltro('urgente')}
+            aria-pressed={filtro === 'urgente'}
+            className={`dashboard-card surface-enter w-full rounded-lg bg-white p-6 text-left shadow ${filtro === 'urgente' ? 'ring-2 ring-red-500' : ''}`}
+          >
             <div className="flex items-center">
               <div className="p-2 bg-red-100 rounded-lg">
                 <AlertTriangle className="w-6 h-6 text-red-600" />
@@ -268,9 +703,14 @@ export default function Home() {
                 <p className="text-2xl font-semibold text-gray-900">{estatisticas.vencendo_15_dias}</p>
               </div>
             </div>
-          </div>
+          </button>
 
-          <div className="bg-white p-6 rounded-lg shadow">
+          <button
+            type="button"
+            onClick={() => setFiltro('vencidos')}
+            aria-pressed={filtro === 'vencidos'}
+            className={`dashboard-card surface-enter w-full rounded-lg bg-white p-6 text-left shadow ${filtro === 'vencidos' ? 'ring-2 ring-gray-500' : ''}`}
+          >
             <div className="flex items-center">
               <div className="p-2 bg-gray-100 rounded-lg">
                 <XCircle className="w-6 h-6 text-gray-600" />
@@ -280,11 +720,11 @@ export default function Home() {
                 <p className="text-2xl font-semibold text-gray-900">{estatisticas.vencidos}</p>
               </div>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Controles */}
-        <div className="bg-white p-6 rounded-lg shadow mb-6">
+        <div className="surface-enter bg-white p-6 rounded-lg shadow mb-6">
           <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
             <div className="flex flex-col sm:flex-row space-y-4 sm:space-y-0 sm:space-x-4">
               <div className="relative">
@@ -307,23 +747,43 @@ export default function Home() {
                 <option value="vencendo">Vencendo (30d)</option>
                 <option value="urgente">Urgente (15d)</option>
                 <option value="vencidos">Vencidos</option>
+                <option value="sem_contato">Sem contato</option>
+                <option value="erro">Erro de leitura</option>
                 <option value="pj">Pessoa Jurídica</option>
                 <option value="pf">Pessoa Física</option>
               </select>
             </div>
 
             <button
-              onClick={() => { setModalType('certificado'); setShowModal(true); }}
+              onClick={() => { setCertificadoSelecionado(null); setModalType('certificado'); setShowModal(true); }}
               className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
             >
               <Plus className="w-5 h-5 mr-2" />
               Novo Certificado
             </button>
           </div>
+
+          <div className="mt-5 flex flex-wrap gap-2 border-t border-gray-200 pt-4" aria-label="Filtros rápidos">
+            {filtrosRapidos.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setFiltro(item.id)}
+                aria-pressed={filtro === item.id}
+                className={`rounded-full border px-3 py-1.5 text-sm font-medium ${
+                  filtro === item.id
+                    ? 'border-blue-600 bg-blue-600 text-white'
+                    : 'border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                }`}
+              >
+                {item.label} <span className="ml-1 opacity-75">{item.quantidade}</span>
+              </button>
+            ))}
+          </div>
         </div>
 
         {/* Lista de Certificados */}
-        <div className="bg-white rounded-lg shadow overflow-hidden">
+        <div className="surface-enter bg-white rounded-lg shadow overflow-hidden">
           <div className="px-6 py-4 border-b border-gray-200 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
               <h3 className="text-lg font-medium text-gray-900">
@@ -349,7 +809,7 @@ export default function Home() {
             </label>
           </div>
           
-          <div className="w-full overflow-hidden">
+          <div className="hidden max-h-[70vh] w-full overflow-y-auto md:block">
             <table className="w-full table-fixed divide-y divide-gray-200">
               <colgroup>
                 <col className="w-[25%]" />
@@ -359,31 +819,56 @@ export default function Home() {
                 <col className="w-[10%]" />
                 <col className="w-[18%]" />
               </colgroup>
-              <thead className="bg-gray-50">
+              <thead className="sticky top-0 z-10 bg-gray-50 shadow-sm">
                 <tr>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Cliente
+                    <button type="button" onClick={() => alternarOrdenacao('empresa')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Cliente {iconeOrdenacao('empresa')}
+                    </button>
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Documento
+                    <button type="button" onClick={() => alternarOrdenacao('documento')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Documento {iconeOrdenacao('documento')}
+                    </button>
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Arquivo
+                    <button type="button" onClick={() => alternarOrdenacao('arquivo')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Arquivo {iconeOrdenacao('arquivo')}
+                    </button>
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Vencimento
+                    <button type="button" onClick={() => alternarOrdenacao('vencimento')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Vencimento {iconeOrdenacao('vencimento')}
+                    </button>
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Status
+                    <button type="button" onClick={() => alternarOrdenacao('status')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Status {iconeOrdenacao('status')}
+                    </button>
                   </th>
                   <th className="px-3 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                    Contato
+                    <button type="button" onClick={() => alternarOrdenacao('contato')} className="certificate-sort-button flex items-center gap-1.5 hover:text-gray-800">
+                      Contato {iconeOrdenacao('contato')}
+                    </button>
                   </th>
                 </tr>
               </thead>
               <tbody className="bg-white divide-y divide-gray-200">
                 {certificadosDaPagina.map((cert) => (
-                  <tr key={cert.id} className="hover:bg-gray-50">
+                  <tr
+                    key={cert.id}
+                    className="certificate-row cursor-pointer hover:bg-gray-50"
+                    tabIndex={0}
+                    role="button"
+                    aria-label={`Abrir detalhes de ${cert.nome_empresa}`}
+                    onClick={() => abrirCertificado(cert)}
+                    onKeyDown={(evento) => {
+                      if (evento.key === 'Enter' || evento.key === ' ') {
+                        evento.preventDefault();
+                        abrirCertificado(cert);
+                      }
+                    }}
+                  >
                     <td className="px-3 py-4 align-top">
                       <div className="flex min-w-0 items-start">
                         <div className="flex-shrink-0">
@@ -399,14 +884,16 @@ export default function Home() {
                           </div>
                           {cert.responsavel && (
                             <div className="mt-1 break-words text-xs text-gray-500">
-                              {cert.responsavel}
+                              {cert.responsavel.toLocaleUpperCase('pt-BR')}
                             </div>
                           )}
                         </div>
                       </div>
                     </td>
                     <td className="px-3 py-4 align-top">
-                      <div className="break-all text-sm text-gray-900">{cert.cpf_cnpj}</div>
+                      <div className="text-sm text-gray-900">
+                        {formatarDocumento(cert.cpf_cnpj, cert.tipo)}
+                      </div>
                       <div className="mt-1 text-xs text-gray-500">{cert.tipo}</div>
                     </td>
                     <td className="px-3 py-4 align-top">
@@ -460,6 +947,71 @@ export default function Home() {
             </table>
           </div>
 
+          <div className="divide-y divide-gray-200 md:hidden">
+            {certificadosDaPagina.map((cert) => (
+              <button
+                key={cert.id}
+                type="button"
+                onClick={() => abrirCertificado(cert)}
+                className="certificate-mobile-card block w-full p-4 text-left hover:bg-gray-50"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="break-words text-sm font-semibold text-gray-900">
+                      {cert.nome_empresa}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      {formatarDocumento(cert.cpf_cnpj, cert.tipo)} · {cert.tipo}
+                    </p>
+                  </div>
+                  <div className={`flex shrink-0 items-center ${getStatusColor(cert.dias_para_vencimento)}`}>
+                    {getStatusIcon(cert.dias_para_vencimento)}
+                    <span className="ml-1 text-xs font-medium">
+                      {cert.dias_para_vencimento === undefined ? 'Sem prazo' :
+                       cert.dias_para_vencimento < 0 ? 'Vencido' :
+                       cert.dias_para_vencimento <= 15 ? 'Urgente' :
+                       cert.dias_para_vencimento <= 30 ? 'Vencendo' : 'OK'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="mt-4 grid grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <p className="text-gray-500">Vencimento</p>
+                    <p className="mt-1 font-medium text-gray-800">{formatarData(cert.data_vencimento)}</p>
+                  </div>
+                  <div>
+                    <p className="text-gray-500">Prazo</p>
+                    <p className="mt-1 font-medium text-gray-800">
+                      {cert.dias_para_vencimento === undefined
+                        ? 'Não informado'
+                        : cert.dias_para_vencimento < 0
+                          ? `${Math.abs(cert.dias_para_vencimento)} dias atrás`
+                          : `${cert.dias_para_vencimento} dias restantes`}
+                    </p>
+                  </div>
+                </div>
+
+                {(cert.email_contato || cert.telefone_contato) && (
+                  <div className="mt-4 space-y-1 border-t border-gray-200 pt-3 text-xs text-gray-500">
+                    {cert.email_contato && (
+                      <div className="flex items-start gap-1.5">
+                        <Mail className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span className="break-all">{cert.email_contato}</span>
+                      </div>
+                    )}
+                    {cert.telefone_contato && (
+                      <div className="flex items-start gap-1.5">
+                        <Phone className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                        <span>{cert.telefone_contato}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </button>
+            ))}
+          </div>
+
           {totalPaginas > 1 && (
             <div className="px-6 py-4 border-t border-gray-200 flex justify-center">
               <ReactPaginate
@@ -484,7 +1036,17 @@ export default function Home() {
           {certificadosFiltrados.length === 0 && (
             <div className="text-center py-12">
               <Shield className="w-12 h-12 text-gray-400 mx-auto mb-4" />
-              <p className="text-gray-500">Nenhum certificado encontrado</p>
+              <p className="font-medium text-gray-700">Nenhum certificado encontrado</p>
+              <p className="mt-1 text-sm text-gray-500">
+                Tente remover a busca ou selecionar outro filtro.
+              </p>
+              <button
+                type="button"
+                onClick={limparFiltros}
+                className="mt-4 rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Limpar filtros
+              </button>
             </div>
           )}
         </div>
@@ -493,10 +1055,16 @@ export default function Home() {
       {/* Modais */}
       <CertificadoModal
         isOpen={showModal && modalType === 'certificado'}
-        onClose={() => setShowModal(false)}
+        certificado={certificadoSelecionado || undefined}
+        somenteLeitura={Boolean(certificadoSelecionado)}
+        onClose={() => { setShowModal(false); setCertificadoSelecionado(null); }}
         onSave={() => {
           // Recarregar dados após salvar
-          carregarDados();
+          carregarDados(false);
+          mostrarToast(
+            certificadoSelecionado ? 'Certificado atualizado com sucesso.' : 'Certificado criado com sucesso.',
+            'success',
+          );
         }}
       />
 
@@ -507,22 +1075,208 @@ export default function Home() {
 
       {/* Modal de Notificações (placeholder) */}
       {showModal && modalType === 'notificacao' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg p-6 w-full max-w-md">
-            <h3 className="text-lg font-medium mb-4 flex items-center">
-              <Bell className="w-5 h-5 mr-2" />
-              Central de Notificações
-            </h3>
-            <p className="text-gray-600 mb-4">
-              Funcionalidade em desenvolvimento...
-            </p>
-            <button
-              onClick={() => setShowModal(false)}
-              className="bg-gray-200 text-gray-800 px-4 py-2 rounded-lg hover:bg-gray-300"
-            >
-              Fechar
-            </button>
+        <div
+          className="modal-backdrop fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4"
+          onMouseDown={(evento) => {
+            if (evento.target === evento.currentTarget) setShowModal(false);
+          }}
+        >
+          <div
+            className="modal-panel flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="titulo-central-pendencias"
+          >
+            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 sm:px-6">
+              <div>
+                <h3 id="titulo-central-pendencias" className="flex items-center text-lg font-semibold text-gray-900">
+                  <Bell className="mr-2 h-5 w-5 text-blue-600" />
+                  Central de pendências
+                </h3>
+                <p className="mt-1 text-sm text-gray-500">
+                  {pendencias.length} aviso{pendencias.length === 1 ? '' : 's'} · {pendenciasNaoLidas.length} não lido{pendenciasNaoLidas.length === 1 ? '' : 's'}.
+                </p>
+                {ultimaAtualizacao && (
+                  <p className="mt-1 text-xs text-gray-400">
+                    Dados atualizados às {ultimaAtualizacao.toLocaleTimeString('pt-BR')}
+                  </p>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                {abaCentral === 'pendencias' && pendenciasNaoLidas.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={marcarTodasPendenciasComoLidas}
+                    className="flex items-center rounded-lg px-2 py-2 text-xs font-medium text-blue-600 hover:bg-blue-50 sm:px-3"
+                    aria-label="Marcar todas as pendências como lidas"
+                  >
+                    <CheckCircle className="h-4 w-4 sm:mr-1.5" />
+                    <span className="hidden sm:inline">Marcar todas como lidas</span>
+                  </button>
+                )}
+                <button
+                  type="button"
+                  onClick={() => setShowModal(false)}
+                  className="rounded-lg p-2 text-gray-500 hover:bg-gray-100 hover:text-gray-800"
+                  aria-label="Fechar central de pendências"
+                >
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+            </div>
+
+            <div className="flex border-b border-gray-200 px-5 sm:px-6" role="tablist" aria-label="Seções da central">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={abaCentral === 'pendencias'}
+                onClick={() => setAbaCentral('pendencias')}
+                className={`border-b-2 px-4 py-3 text-sm font-medium ${
+                  abaCentral === 'pendencias'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                Pendências
+                {pendenciasNaoLidas.length > 0 && (
+                  <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">{pendenciasNaoLidas.length}</span>
+                )}
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={abaCentral === 'atividade'}
+                onClick={() => setAbaCentral('atividade')}
+                className={`border-b-2 px-4 py-3 text-sm font-medium ${
+                  abaCentral === 'atividade'
+                    ? 'border-blue-600 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                Atividade da automação
+              </button>
+            </div>
+
+            <div className={`${abaCentral === 'pendencias' ? 'flex' : 'hidden'} flex-wrap gap-2 border-b border-gray-200 px-5 py-3 sm:px-6`} aria-label="Categorias de pendências">
+              {resumoPendencias.map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setFiltroNotificacao(item.id)}
+                  aria-pressed={filtroNotificacao === item.id}
+                  className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+                    filtroNotificacao === item.id
+                      ? 'border-blue-600 bg-blue-600 text-white'
+                      : 'border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600'
+                  }`}
+                >
+                  {item.label} <span className="ml-1 opacity-75">{item.quantidade}</span>
+                </button>
+              ))}
+            </div>
+
+            <div className={`${abaCentral === 'pendencias' ? 'block' : 'hidden'} min-h-0 flex-1 overflow-y-auto`}>
+              {pendenciasExibidas.length === 0 ? (
+                <div className="px-6 py-14 text-center">
+                  <CheckCircle className="mx-auto h-11 w-11 text-green-500" />
+                  <p className="mt-3 font-medium text-gray-800">Nenhuma pendência nesta categoria</p>
+                  <p className="mt-1 text-sm text-gray-500">Os dados carregados não possuem avisos desse tipo.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-gray-200">
+                  {pendenciasExibidas.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        marcarPendenciaComoLida(item.id);
+                        abrirCertificado(item.certificado);
+                      }}
+                      className={`notification-item flex w-full items-start gap-3 px-5 py-4 text-left hover:bg-gray-50 sm:px-6 ${
+                        pendenciasLidas.has(item.id) ? 'opacity-75' : 'notification-unread'
+                      }`}
+                    >
+                      <span className={`mt-0.5 rounded-lg border p-2 ${estiloPendencia(item.tipo)}`}>
+                        {item.tipo === 'urgente' || item.tipo === 'vencido' || item.tipo === 'erro' ? (
+                          <AlertTriangle className="h-4 w-4" />
+                        ) : item.tipo === 'sem_contato' ? (
+                          <Phone className="h-4 w-4" />
+                        ) : (
+                          <Clock className="h-4 w-4" />
+                        )}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="break-words text-sm font-semibold text-gray-900">
+                            {item.certificado.nome_empresa}
+                          </span>
+                          {!pendenciasLidas.has(item.id) && (
+                            <span className="h-2 w-2 shrink-0 rounded-full bg-blue-600" aria-label="Não lida" />
+                          )}
+                          <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium ${estiloPendencia(item.tipo)}`}>
+                            {item.titulo}
+                          </span>
+                        </span>
+                        <span className="mt-1 block break-words text-sm text-gray-600">
+                          {item.descricao}
+                        </span>
+                        <span className="mt-1 block text-xs text-gray-400">
+                          {formatarDocumento(item.certificado.cpf_cnpj, item.certificado.tipo)} · clique para ver detalhes
+                        </span>
+                      </span>
+                      <ArrowDown className="mt-2 h-4 w-4 -rotate-90 text-gray-400" />
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div className={`${abaCentral === 'atividade' ? 'block' : 'hidden'} min-h-0 flex-1 overflow-y-auto`}>
+              {abaCentral === 'atividade' && <AutomationActivityPanel />}
+            </div>
+
+            <div className={`${abaCentral === 'pendencias' ? 'flex' : 'hidden'} flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6`}>
+              <p className="text-xs text-gray-500">Esta central apenas exibe dados; nenhuma mensagem é enviada.</p>
+              <button
+                type="button"
+                onClick={aplicarPendenciasNaTabela}
+                className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
+              >
+                Mostrar na tabela
+              </button>
+            </div>
           </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          className={`toast-enter fixed right-4 top-4 z-[70] flex max-w-sm items-start gap-3 rounded-xl border px-4 py-3 shadow-lg ${
+            toast.tipo === 'success'
+              ? 'border-green-200 bg-green-50 text-green-800'
+              : toast.tipo === 'error'
+                ? 'border-red-200 bg-red-50 text-red-800'
+                : 'border-blue-200 bg-blue-50 text-blue-800'
+          }`}
+          role="status"
+          aria-live="polite"
+        >
+          {toast.tipo === 'success' ? (
+            <CheckCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          ) : toast.tipo === 'error' ? (
+            <XCircle className="mt-0.5 h-5 w-5 shrink-0" />
+          ) : (
+            <Bell className="mt-0.5 h-5 w-5 shrink-0" />
+          )}
+          <span className="text-sm font-medium">{toast.mensagem}</span>
+          <button
+            type="button"
+            onClick={() => setToast(null)}
+            className="ml-auto text-current opacity-60 hover:opacity-100"
+            aria-label="Fechar aviso"
+          >
+            ×
+          </button>
         </div>
       )}
     </div>

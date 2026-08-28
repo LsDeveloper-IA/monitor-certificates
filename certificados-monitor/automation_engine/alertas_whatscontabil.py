@@ -1,11 +1,13 @@
 """Alertas internos de certificados enviados pela aplicação WhatsContábil."""
 
+import os
 import re
 from time import sleep
 
 from integracoes.whatscontabil import (
     ErroWhatsContabil,
     enviar_mensagem_texto,
+    enviar_template,
     normalizar_telefone_brasil,
 )
 from registro_alertas import (
@@ -256,8 +258,23 @@ def simular_alertas_internos(alertas, telefone):
 
 def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
     """Executa os três fluxos usando somente o número de teste."""
-    destinatario = normalizar_telefone_brasil(telefone)
+    modo = os.getenv("MODO_WHATSCONTABIL", "desativado").strip().casefold()
+    if modo != "teste":
+        raise ErroWhatsContabil(
+            "Envio bloqueado: a WhatsContabil deve estar no modo de teste."
+        )
+
+    telefone_teste = os.getenv("WHATSCONTABIL_NUMERO_TESTE", "").strip()
+    if not telefone_teste:
+        raise ErroWhatsContabil(
+            "Envio bloqueado: o numero de teste nao esta configurado."
+        )
+
+    # O argumento telefone e mantido por compatibilidade, mas nunca define o
+    # destinatario. Isso impede que um telefone de cliente seja usado por engano.
+    destinatario = normalizar_telefone_brasil(telefone_teste)
     com_contato, para_equipe = classificar_alertas_por_contato(alertas)
+    ignorar_duplicidade_teste = True
     resumo = {
         "enviados": 0,
         "duplicados": 0,
@@ -266,6 +283,147 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
         "message_ids": [],
     }
 
+    nome_template = os.getenv("WHATSCONTABIL_TEMPLATE_TESTE", "").strip()
+    if not nome_template:
+        resumo["falhas"] = 1
+        resumo["detalhes_falhas"].append({
+            "empresa": "Monitor de Certificados",
+            "email": f"whatsapp:{destinatario}",
+            "erro": "Template oficial de certificados nao configurado",
+        })
+        print(
+            "Envio oficial bloqueado: configure o nome do template "
+            "aprovado em WHATSCONTABIL_TEMPLATE_TESTE."
+        )
+        return resumo
+
+    nome_destinatario = os.getenv(
+        "WHATSCONTABIL_NOME_DESTINATARIO_TESTE",
+        "Equipe Office",
+    ).strip() or "Equipe Office"
+    transmissoes = []
+
+    for alerta in com_contato:
+        transmissoes.append((
+            "cliente",
+            f"Cliente - {alerta.get('empresa') or 'Empresa nao informada'}",
+            _montar_mensagem_cliente(alerta),
+            [alerta],
+        ))
+
+    for mensagem, itens in _montar_relatorios(
+        com_contato,
+        "RELATORIO PARA O FUNCIONARIO RESPONSAVEL",
+        _montar_bloco_responsavel,
+    ):
+        transmissoes.append((
+            "responsavel",
+            "Funcionario responsavel",
+            mensagem,
+            itens,
+        ))
+
+    for mensagem, itens in _montar_relatorios(
+        para_equipe,
+        "PENDENCIAS DE CONTATO PARA A EQUIPE",
+        _montar_bloco_equipe,
+    ):
+        transmissoes.append(("equipe", nome_destinatario, mensagem, itens))
+
+    print(f"Templates de teste preparados: {len(transmissoes)}")
+    for numero, (tipo, nome, mensagem, itens) in enumerate(
+        transmissoes,
+        start=1,
+    ):
+        if numero > 1:
+            sleep(5.1)
+        try:
+            resultado = enviar_template(
+                pasta_projeto,
+                destinatario,
+                nome_template,
+                whatsapp_id,
+                [nome, mensagem],
+            )
+            resposta = resultado.get("resposta") or {}
+            resumo["message_ids"].extend(resposta.get("messageIds") or [])
+            resumo["enviados"] += 1
+            print(
+                f"Template de {tipo} {numero}/{len(transmissoes)} aceito "
+                f"pela WhatsContabil ({len(itens)} certificado(s))."
+            )
+        except (ErroWhatsContabil, OSError) as erro:
+            resumo["falhas"] += 1
+            resumo["detalhes_falhas"].append({
+                "empresa": ", ".join(
+                    item.get("empresa") or "Empresa nao informada"
+                    for item in itens
+                ),
+                "email": f"whatsapp:{destinatario}",
+                "erro": str(erro),
+            })
+            print(f"Falha no template de {tipo}: {erro}")
+
+    return resumo
+
+    # A conexão usada no ambiente de teste é oficial (Cloud API da Meta).
+    # Nesse tipo de conexão, texto livre não pode iniciar uma conversa. O
+    # template aprovado é enviado como notificação resumida; os detalhes
+    # permanecem disponíveis no Monitor de Certificados.
+    if ignorar_duplicidade_teste:
+        nome_template = os.getenv(
+            "WHATSCONTABIL_TEMPLATE_TESTE",
+            "",
+        ).strip()
+        if not nome_template:
+            resumo["falhas"] = 1
+            resumo["detalhes_falhas"].append(
+                {
+                    "empresa": "Resumo do monitor",
+                    "email": f"whatsapp:{destinatario}",
+                    "erro": "Template oficial de certificados nao configurado",
+                }
+            )
+            print(
+                "Envio oficial bloqueado: configure o nome do template "
+                "aprovado em WHATSCONTABIL_TEMPLATE_TESTE."
+            )
+            return resumo
+        nome_destinatario = os.getenv(
+            "WHATSCONTABIL_NOME_DESTINATARIO_TESTE",
+            "Equipe Office",
+        ).strip() or "Equipe Office"
+        assunto = (
+            f"{len(alertas)} certificados digitais proximos do vencimento. "
+            "Consulte os detalhes no Monitor de Certificados"
+        )
+
+        try:
+            resultado = enviar_template(
+                pasta_projeto,
+                destinatario,
+                nome_template,
+                whatsapp_id,
+                [nome_destinatario, assunto],
+            )
+            resposta = resultado.get("resposta") or {}
+            print(
+                "Notificacao oficial de teste aceita pela WhatsContabil: "
+                f"{resposta.get('message') or 'HTTP 2xx'}."
+            )
+            resumo["enviados"] = 1
+        except (ErroWhatsContabil, OSError) as erro:
+            resumo["falhas"] = 1
+            resumo["detalhes_falhas"].append(
+                {
+                    "empresa": "Resumo do monitor",
+                    "email": f"whatsapp:{destinatario}",
+                    "erro": str(erro),
+                }
+            )
+            print(f"Falha no envio do template oficial de teste: {erro}")
+        return resumo
+
     def separar_pendentes(itens, tipo):
         resultado = []
         for alerta in itens:
@@ -273,12 +431,13 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
             registro["email"] = f"whatsapp:{tipo}:{destinatario}"
             eh_recuperacao = alerta.get("tipo_aviso") == "recuperacao"
 
-            if eh_recuperacao and alerta_ja_possui_algum_envio(registro):
-                resumo["duplicados"] += 1
-                continue
-            if not eh_recuperacao and alerta_ja_enviado(registro):
-                resumo["duplicados"] += 1
-                continue
+            if not ignorar_duplicidade_teste:
+                if eh_recuperacao and alerta_ja_possui_algum_envio(registro):
+                    resumo["duplicados"] += 1
+                    continue
+                if not eh_recuperacao and alerta_ja_enviado(registro):
+                    resumo["duplicados"] += 1
+                    continue
 
             # O valor zero identifica a recuperação independentemente do
             # dia em que ela aconteceu. Os avisos normais mantêm 30 ou 15.

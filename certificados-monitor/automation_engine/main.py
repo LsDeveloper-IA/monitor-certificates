@@ -111,6 +111,7 @@ def print(*valores, **opcoes):
 DIAS_PRIMEIRO_AVISO = 30
 DIAS_SEGUNDO_AVISO = 15
 CNPJ_OID = ObjectIdentifier("2.16.76.1.3.3")
+RESPONSAVEL_CERTIFICADO_OID = ObjectIdentifier("2.16.76.1.3.2")
 CARACTERES_ILEGAIS_EXCEL = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f]")
 INICIO_EXECUCAO = perf_counter()
 
@@ -1141,6 +1142,82 @@ def pegar_cnpj_do_certificado(certificado_aberto):
     return None
 
 
+def _decodificar_texto_asn1(valor):
+    """Decodifica as strings DER usadas nos campos OtherName da ICP-Brasil."""
+    if not valor or len(valor) < 2:
+        return None
+
+    tag = valor[0]
+    primeiro_byte_tamanho = valor[1]
+    inicio = 2
+
+    if primeiro_byte_tamanho & 0x80:
+        quantidade_bytes = primeiro_byte_tamanho & 0x7F
+        if not quantidade_bytes or len(valor) < inicio + quantidade_bytes:
+            return None
+        tamanho = int.from_bytes(
+            valor[inicio:inicio + quantidade_bytes],
+            "big",
+        )
+        inicio += quantidade_bytes
+    else:
+        tamanho = primeiro_byte_tamanho
+
+    conteudo = valor[inicio:inicio + tamanho]
+    if len(conteudo) != tamanho:
+        return None
+
+    # Alguns emissores envolvem outra string DER em OCTET STRING ou em um
+    # campo explícito. Outros colocam o texto diretamente no OCTET STRING.
+    if tag == 0x04 or tag & 0xE0 == 0xA0:
+        texto_interno = _decodificar_texto_asn1(conteudo)
+        if texto_interno:
+            return texto_interno
+
+        try:
+            return conteudo.decode("utf-8").strip(" \t\r\n\x00") or None
+        except UnicodeDecodeError:
+            return None
+
+    codificacoes = {
+        0x0C: "utf-8",       # UTF8String
+        0x12: "ascii",       # NumericString
+        0x13: "ascii",       # PrintableString
+        0x14: "latin-1",     # TeletexString
+        0x16: "ascii",       # IA5String
+        0x1C: "utf-32-be",   # UniversalString
+        0x1E: "utf-16-be",   # BMPString
+    }
+    codificacao = codificacoes.get(tag)
+    if not codificacao:
+        return None
+
+    try:
+        return conteudo.decode(codificacao).strip(" \t\r\n\x00") or None
+    except UnicodeDecodeError:
+        return None
+
+
+def pegar_responsavel_do_certificado(certificado_aberto):
+    """Retorna o responsável de uso informado no e-CNPJ, quando disponível."""
+    try:
+        extensao_san = certificado_aberto.extensions.get_extension_for_class(
+            x509.SubjectAlternativeName
+        ).value
+    except x509.ExtensionNotFound:
+        return None
+
+    for outro_nome in extensao_san.get_values_for_type(x509.OtherName):
+        if outro_nome.type_id != RESPONSAVEL_CERTIFICADO_OID:
+            continue
+
+        responsavel = _decodificar_texto_asn1(outro_nome.value)
+        if responsavel:
+            return responsavel
+
+    return None
+
+
 def analisar_certificado(certificado, senha, resultado):
     try:
         certificado_aberto = abrir_certificado(certificado, senha)
@@ -1159,6 +1236,9 @@ def analisar_certificado(certificado, senha, resultado):
 
         cnpj_nome = pegar_cnpj_do_nome(certificado)
         cnpj_certificado = pegar_cnpj_do_certificado(certificado_aberto)
+        responsavel_certificado = pegar_responsavel_do_certificado(
+            certificado_aberto
+        )
 
         # O CNPJ gravado dentro do certificado é a fonte principal. Se ele
         # não existir, usa o CNPJ encontrado no nome do arquivo.
@@ -1203,6 +1283,7 @@ def analisar_certificado(certificado, senha, resultado):
         resultado["vencimento"] = fim_validade.date()
         resultado["dias"] = dias_restantes
         resultado["titular"] = titular
+        resultado["responsavel_certificado"] = responsavel_certificado
         resultado["status"] = status
         resultado["observacao"] = " | ".join(observacoes)
 
@@ -1340,6 +1421,7 @@ else:
                     "email": None,
                     "dados_cliente": None,
                     "titular": None,
+                    "responsavel_certificado": None,
                     "vencimento": None,
                     "dias": None,
                     "status": "ERRO NA LEITURA",
