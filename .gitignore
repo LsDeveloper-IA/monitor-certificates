@@ -21,3 +21,8 @@ certificados-monitor/*.pyc
 
 # Geral
 .DS_Store
+.env
+credentials.json
+token*.json
+token*.pickle
+certificados-monitor/*.log
