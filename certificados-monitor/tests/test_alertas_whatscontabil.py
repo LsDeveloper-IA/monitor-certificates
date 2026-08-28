@@ -59,11 +59,17 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
         self.assertEqual(enviar_template_oficial.call_count, 2)
         for chamada in enviar_template_oficial.call_args_list:
             self.assertEqual(chamada.args[1], "558596490370")
-        self.assertTrue(
-            enviar_template_oficial.call_args_list[0].args[4][0].startswith(
-                "Cliente - EMPRESA TESTE"
-            )
+        self.assertEqual(
+            enviar_template_oficial.call_args_list[0].args[4][0],
+            "Cliente",
         )
+        for chamada in enviar_template_oficial.call_args_list:
+            mensagem = chamada.args[4][1]
+            self.assertNotIn("\n", mensagem)
+            self.assertLessEqual(
+                len(mensagem),
+                alertas_whatscontabil.LIMITE_VARIAVEL_TEMPLATE,
+            )
         self.assertEqual(
             enviar_template_oficial.call_args_list[1].args[4][0],
             "Funcionario responsavel",
@@ -109,6 +115,39 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
         self.assertEqual(chamada.args[4][0], "Equipe Office")
         self.assertIn("PENDENCIAS DE CONTATO", chamada.args[4][1])
         self.assertEqual(resumo["enviados"], 1)
+
+    @patch.object(alertas_whatscontabil, "sleep")
+    @patch.object(
+        alertas_whatscontabil,
+        "enviar_template",
+        side_effect=alertas_whatscontabil.ErroWhatsContabil(
+            "A API recusou os parametros da requisicao."
+        ),
+    )
+    def test_erro_de_parametros_cancela_as_demais_tentativas(
+        self,
+        enviar_template_oficial,
+        _sleep,
+    ):
+        with patch.dict(
+            os.environ,
+            {
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_NUMERO_TESTE": "558596490370",
+                "WHATSCONTABIL_TEMPLATE_TESTE": "alerta_certificado_teste",
+            },
+            clear=False,
+        ):
+            resumo = alertas_whatscontabil.enviar_alertas_internos(
+                [self.alerta, {**self.alerta, "empresa": "EMPRESA DOIS"}],
+                PASTA_MOTOR,
+                "5585999999999",
+                2,
+            )
+
+        enviar_template_oficial.assert_called_once()
+        self.assertEqual(resumo["enviados"], 0)
+        self.assertEqual(resumo["falhas"], 3)
 
     @patch.object(alertas_whatscontabil, "enviar_mensagem_texto")
     @patch.object(alertas_whatscontabil, "alerta_ja_enviado", return_value=True)

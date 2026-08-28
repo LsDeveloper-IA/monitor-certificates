@@ -20,6 +20,7 @@ from registro_alertas import (
 DIAS_MINIMOS_ALERTA = 1
 DIAS_MAXIMOS_ALERTA = 30
 LIMITE_MENSAGEM = 2000
+LIMITE_VARIAVEL_TEMPLATE = 900
 
 
 def preparar_alertas_internos(resultados):
@@ -158,6 +159,38 @@ def _montar_bloco_equipe(alerta):
     bloco = _montar_bloco(alerta)
     faltantes = " e ".join(alerta.get("dados_faltantes", []))
     return f"{bloco}\nPendência: localizar/atualizar {faltantes}."
+
+
+def _compactar_variavel_template(texto):
+    """Remove quebras de linha e limita o texto aceito pelo template."""
+    compacto = re.sub(r"\s+", " ", str(texto or "")).strip()
+    if len(compacto) <= LIMITE_VARIAVEL_TEMPLATE:
+        return compacto
+    return compacto[: LIMITE_VARIAVEL_TEMPLATE - 3].rstrip() + "..."
+
+
+def _montar_relatorios_template(alertas, titulo, montar_bloco):
+    """Agrupa blocos curtos sem quebrar as regras das variaveis da Meta."""
+    prefixo = f"{titulo}: "
+    pacotes = []
+    texto_atual = prefixo
+    itens_atuais = []
+
+    for alerta in alertas:
+        bloco = _compactar_variavel_template(montar_bloco(alerta))
+        separador = " | " if itens_atuais else ""
+        candidato = texto_atual + separador + bloco
+        if len(candidato) > LIMITE_VARIAVEL_TEMPLATE and itens_atuais:
+            pacotes.append((texto_atual, itens_atuais))
+            texto_atual = prefixo + bloco
+            itens_atuais = [alerta]
+        else:
+            texto_atual = candidato
+            itens_atuais.append(alerta)
+
+    if itens_atuais:
+        pacotes.append((texto_atual, itens_atuais))
+    return pacotes
 
 
 def _montar_relatorios(alertas, titulo, montar_bloco):
@@ -306,12 +339,12 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
     for alerta in com_contato:
         transmissoes.append((
             "cliente",
-            f"Cliente - {alerta.get('empresa') or 'Empresa nao informada'}",
-            _montar_mensagem_cliente(alerta),
+            "Cliente",
+            _compactar_variavel_template(_montar_mensagem_cliente(alerta)),
             [alerta],
         ))
 
-    for mensagem, itens in _montar_relatorios(
+    for mensagem, itens in _montar_relatorios_template(
         com_contato,
         "RELATORIO PARA O FUNCIONARIO RESPONSAVEL",
         _montar_bloco_responsavel,
@@ -323,7 +356,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
             itens,
         ))
 
-    for mensagem, itens in _montar_relatorios(
+    for mensagem, itens in _montar_relatorios_template(
         para_equipe,
         "PENDENCIAS DE CONTATO PARA A EQUIPE",
         _montar_bloco_equipe,
@@ -353,7 +386,9 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 f"pela WhatsContabil ({len(itens)} certificado(s))."
             )
         except (ErroWhatsContabil, OSError) as erro:
-            resumo["falhas"] += 1
+            restantes = len(transmissoes) - numero + 1
+            erro_parametros = "par" in str(erro).casefold()
+            resumo["falhas"] += restantes if erro_parametros else 1
             resumo["detalhes_falhas"].append({
                 "empresa": ", ".join(
                     item.get("empresa") or "Empresa nao informada"
@@ -363,6 +398,12 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 "erro": str(erro),
             })
             print(f"Falha no template de {tipo}: {erro}")
+            if erro_parametros:
+                print(
+                    "Demais templates cancelados para evitar repetir uma "
+                    "requisicao com formato invalido."
+                )
+                break
 
     return resumo
 
