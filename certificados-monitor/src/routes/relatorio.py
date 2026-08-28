@@ -15,10 +15,19 @@ relatorio_bp = Blueprint("relatorio", __name__)
 def _pasta_com_credenciais():
     configurada = os.getenv("GOOGLE_DRIVE_CREDENCIAIS_DIR", "").strip()
     if configurada:
-        return Path(configurada)
+        pasta_configurada = Path(configurada).expanduser()
+        if not pasta_configurada.is_absolute():
+            pasta_configurada = Path(__file__).resolve().parents[2] / pasta_configurada
+        return pasta_configurada.resolve()
+
     raiz = Path(__file__).resolve().parents[2]
+    candidatas = (
+        raiz / "automation_engine",
+        raiz,
+        raiz.parent,
+    )
     return next(
-        (pasta for pasta in (raiz, raiz.parent) if (pasta / "credentials.json").exists()),
+        (pasta for pasta in candidatas if (pasta / "credentials.json").exists()),
         raiz,
     )
 
