@@ -14,6 +14,7 @@ certificados-monitor/automation_engine/token*.json
 certificados-monitor/automation_engine/planilhas/
 certificados-monitor/automation_engine/relatorios/
 certificados-monitor/automation_engine/logs/
+certificados-monitor/automation_engine/dados/
 certificados-frontend/.env.local
 certificados-monitor/*.pyc
 **/__pycache__/
@@ -21,3 +22,8 @@ certificados-monitor/*.pyc
 
 # Geral
 .DS_Store
+.env
+credentials.json
+token*.json
+token*.pickle
+certificados-monitor/*.log

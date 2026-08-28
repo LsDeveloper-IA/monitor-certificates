@@ -15,6 +15,10 @@ const nextConfig: NextConfig = {
         source: "/api/users/:path*",
         destination: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/users/:path*`,
       },
+      {
+        source: "/api/relatorios/:path*",
+        destination: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/relatorios/:path*`,
+      },
     ];
   },
 };

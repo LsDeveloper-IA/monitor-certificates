@@ -1,5 +1,6 @@
 from pathlib import Path
 import os
+import json
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -133,3 +134,46 @@ def ler_senha_google_docs(drive, documento_id):
     ).execute()
 
     return conteudo_em_bytes.decode("utf-8-sig").rstrip("\r\n")
+
+
+def ler_relatorio_json_mais_recente(drive, pasta_id):
+    """Baixa e decodifica o JSON mais recentemente alterado de uma pasta."""
+    pasta_id = str(pasta_id or "").strip()
+    if not pasta_id:
+        raise ValueError(
+            "GOOGLE_DRIVE_PASTA_RELATORIOS_ID não foi configurado no arquivo .env."
+        )
+
+    pasta_id_seguro = pasta_id.replace("'", "\\'")
+    resultado = drive.files().list(
+        q=(
+            f"'{pasta_id_seguro}' in parents and trashed = false and "
+            "(mimeType = 'application/json' or name contains '.json')"
+        ),
+        pageSize=100,
+        orderBy="modifiedTime desc",
+        fields="files(id, name, modifiedTime, mimeType)",
+        spaces="drive",
+        supportsAllDrives=True,
+        includeItemsFromAllDrives=True,
+    ).execute()
+    arquivos = resultado.get("files", [])
+    if not arquivos:
+        raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
+
+    arquivo = arquivos[0]
+    conteudo = drive.files().get_media(
+        fileId=arquivo["id"], supportsAllDrives=True
+    ).execute()
+    if isinstance(conteudo, bytes):
+        conteudo = conteudo.decode("utf-8-sig")
+
+    dados = json.loads(conteudo)
+    if not isinstance(dados, dict):
+        raise ValueError("O relatório JSON precisa conter um objeto na raiz.")
+    dados["arquivo_drive"] = {
+        "id": arquivo["id"],
+        "nome": arquivo["name"],
+        "modificado_em": arquivo.get("modifiedTime"),
+    }
+    return dados

@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect, useRef } from 'react';
+import Link from 'next/link';
 import { 
   Shield, 
   AlertTriangle, 
@@ -21,7 +22,8 @@ import {
   X,
   Moon,
   Sun,
-  RefreshCw
+  RefreshCw,
+  FileWarning
 } from 'lucide-react';
 import CertificadoModal from '@/components/CertificadoModal';
 import ConfigModal from '@/components/ConfigModal';
@@ -585,6 +587,14 @@ export default function Home() {
               </h1>
             </div>
             <div className="flex items-center space-x-4">
+              <Link
+                href="/certificados-vencidos"
+                className="flex items-center gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+                title="Certificados vencidos"
+              >
+                <FileWarning className="h-4 w-4" />
+                <span className="hidden md:inline">Certificados vencidos</span>
+              </Link>
               <button
                 type="button"
                 onClick={() => carregarDados(false)}
