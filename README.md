@@ -35,3 +35,14 @@ envia e-mails ou mensagens.
 
 Copie `certificados-monitor/.env.example` para `.env` e defina chaves fortes
 antes de iniciar o backend.
+
+## Executar a aplicação no Windows
+
+Na pasta `certificados-frontend`, execute:
+
+```powershell
+npm run dev
+```
+
+Esse comando inicia o backend Flask na porta 5000 e o frontend Next.js na
+porta 3000. Os logs do backend ficam em `certificados-monitor/runtime/`.

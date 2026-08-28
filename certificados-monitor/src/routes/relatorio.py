@@ -12,6 +12,34 @@ from automation_engine.integracoes.google_drive import (
 relatorio_bp = Blueprint("relatorio", __name__)
 
 
+def _normalizar_relatorio(dados):
+    resumo = dados.get("resumo")
+    falhas = dados.get("empresas_com_falha")
+    if not isinstance(resumo, dict) or not isinstance(falhas, list):
+        raise ValueError("O JSON do Drive não possui o formato esperado.")
+
+    nomes_listas_sucesso = (
+        "empresas_com_sucesso",
+        "empresas_certas",
+        "empresas_corretas",
+    )
+    sucessos = next(
+        (
+            dados[nome]
+            for nome in nomes_listas_sucesso
+            if isinstance(dados.get(nome), list)
+        ),
+        [],
+    )
+
+    # A automação SIEG atual chama o total de sucessos de "certas". A API
+    # expõe também o nome canônico "sucessos" para manter o frontend simples.
+    total_sucessos = resumo.get("certas", resumo.get("sucessos", len(sucessos)))
+    resumo["sucessos"] = total_sucessos
+    dados["empresas_com_sucesso"] = sucessos
+    return dados
+
+
 def _pasta_com_credenciais():
     configurada = os.getenv("GOOGLE_DRIVE_CREDENCIAIS_DIR", "").strip()
     if configurada:
@@ -35,11 +63,7 @@ def relatorio_certificados_vencidos():
         dados = ler_relatorio_json_mais_recente(
             drive, pasta_relatorios
         )
-        if not isinstance(dados.get("resumo"), dict) or not isinstance(
-            dados.get("empresas_com_falha"), list
-        ):
-            return jsonify({"erro": "O JSON do Drive não possui o formato esperado."}), 422
-        return jsonify(dados), 200
+        return jsonify(_normalizar_relatorio(dados)), 200
     except FileNotFoundError as erro:
         return jsonify({"erro": str(erro)}), 404
     except (ValueError, json.JSONDecodeError) as erro:

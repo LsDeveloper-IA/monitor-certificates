@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
 ]
+ESCOPO_DRIVE_COMPLETO = "https://www.googleapis.com/auth/drive"
 
 def conectar_google_drive(pasta_projeto):
     pasta_projeto = Path(pasta_projeto)
@@ -19,10 +20,17 @@ def conectar_google_drive(pasta_projeto):
     credenciais = None
 
     if arquivo_token.exists():
+        # Não substitui os escopos salvos no token. Um token legado pode ter o
+        # escopo completo do Drive, que já inclui leitura; forçar "readonly"
+        # durante a renovação faz o Google responder com invalid_scope.
         credenciais = Credentials.from_authorized_user_file(
             arquivo_token,
-            SCOPES,
         )
+        escopos_concedidos = set(credenciais.scopes or [])
+        if not escopos_concedidos.intersection({SCOPES[0], ESCOPO_DRIVE_COMPLETO}):
+            raise ValueError(
+                "O token do Google não possui permissão de leitura do Drive."
+            )
 
     if not credenciais or not credenciais.valid:
         if (

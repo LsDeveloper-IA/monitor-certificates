@@ -24,15 +24,34 @@ class RelatorioDriveTestCase(unittest.TestCase):
         conectar.return_value = object()
         ler.return_value = {
             "titulo": "RESUMO DA AUTOMAÇÃO SIEG",
-            "resumo": {"sucessos": 0, "ignorados": 0, "falhas": 1},
+            "resumo": {"certas": 2, "sucessos": 0, "ignorados": 0, "falhas": 1},
             "empresas_com_falha": [
                 {"cnpj": "36111966000143", "nome": "Empresa", "motivo": "Erro"}
+            ],
+            "empresas_certas": [
+                {"cnpj": "12345678000190", "nome": "Empresa A"},
+                {"cnpj": "98765432000110", "nome": "Empresa B"},
             ],
         }
         resposta = self.cliente.get("/api/relatorios/certificados-vencidos")
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json["resumo"]["falhas"], 1)
+        self.assertEqual(resposta.json["resumo"]["sucessos"], 2)
+        self.assertEqual(len(resposta.json["empresas_com_sucesso"]), 2)
         ler.assert_called_once_with(conectar.return_value, "pasta-teste")
+
+    @patch("src.routes.relatorio.ler_relatorio_json_mais_recente")
+    @patch("src.routes.relatorio.conectar_google_drive")
+    def test_aceita_relatorio_sem_lista_nominal_de_sucessos(self, conectar, ler):
+        conectar.return_value = object()
+        ler.return_value = {
+            "resumo": {"certas": 289, "falhas": 34, "ignorados": 0},
+            "empresas_com_falha": [],
+        }
+        resposta = self.cliente.get("/api/relatorios/certificados-vencidos")
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json["resumo"]["sucessos"], 289)
+        self.assertEqual(resposta.json["empresas_com_sucesso"], [])
 
     @patch("src.routes.relatorio.conectar_google_drive")
     def test_informa_quando_json_nao_existe(self, conectar):

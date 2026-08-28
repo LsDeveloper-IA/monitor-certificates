@@ -7,12 +7,15 @@ import {
   FileJson, Moon, RefreshCw, Search, Sun, XCircle,
 } from 'lucide-react';
 
-interface Falha { cnpj: string; nome: string; motivo: string }
+interface EmpresaResultado { cnpj: string; nome: string; motivo?: string }
 interface Relatorio {
   titulo?: string;
   executado_em?: string;
-  resumo: { sucessos?: number; ignorados?: number; falhas?: number };
-  empresas_com_falha: Falha[];
+  resumo: { certas?: number; sucessos?: number; ignorados?: number; falhas?: number };
+  empresas_com_falha: EmpresaResultado[];
+  empresas_com_sucesso?: EmpresaResultado[];
+  empresas_certas?: EmpresaResultado[];
+  empresas_corretas?: EmpresaResultado[];
   arquivo_drive?: { nome?: string; modificado_em?: string };
 }
 
@@ -28,6 +31,7 @@ export default function CertificadosVencidos() {
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
   const [modoEscuro, setModoEscuro] = useState(false);
+  const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos'>('falhas');
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('');
@@ -59,16 +63,23 @@ export default function CertificadosVencidos() {
   };
 
   const resumo = relatorio?.resumo || {};
-  const sucessos = Number(resumo.sucessos || 0);
+  const listaSucessos = relatorio?.empresas_com_sucesso ||
+    relatorio?.empresas_certas || relatorio?.empresas_corretas || [];
+  const sucessos = Number(resumo.certas ?? resumo.sucessos ?? listaSucessos.length);
   const ignorados = Number(resumo.ignorados || 0);
   const falhas = Number(resumo.falhas ?? relatorio?.empresas_com_falha.length ?? 0);
   const total = sucessos + ignorados + falhas;
   const percentualFalhas = total ? Math.round((falhas / total) * 100) : 0;
-  const empresas = useMemo(() => (relatorio?.empresas_com_falha || []).filter((item) => {
+  const percentualSucessos = total ? Math.round((sucessos / total) * 100) : 0;
+  const percentualIgnorados = total ? Math.round((ignorados / total) * 100) : 0;
+  const listaAtiva = resultadoAtivo === 'falhas'
+    ? (relatorio?.empresas_com_falha || [])
+    : listaSucessos;
+  const empresas = useMemo(() => listaAtiva.filter((item) => {
     const termo = busca.toLocaleLowerCase('pt-BR');
     return item.nome?.toLocaleLowerCase('pt-BR').includes(termo) || item.cnpj?.includes(busca) ||
       item.motivo?.toLocaleLowerCase('pt-BR').includes(termo);
-  }), [relatorio, busca]);
+  }), [listaAtiva, busca]);
 
   const cards = [
     { label: 'Total processado', valor: total, Icone: Building2, fundo: 'bg-blue-100', texto: 'text-blue-600' },
@@ -120,13 +131,28 @@ export default function CertificadosVencidos() {
 
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-medium text-gray-900 mb-5">Taxa de falhas</h3>
+          <h3 className="font-medium text-gray-900 mb-5">Distribuição geral</h3>
           <div className="flex items-center justify-center">
-            <div className="relative w-40 h-40 rounded-full" style={{ background: `conic-gradient(#dc2626 ${percentualFalhas}%, #e5e7eb 0)` }}>
+            <div
+              className="relative w-40 h-40 rounded-full"
+              style={{
+                background: `conic-gradient(
+                  #16a34a 0 ${percentualSucessos}%,
+                  #eab308 ${percentualSucessos}% ${percentualSucessos + percentualIgnorados}%,
+                  #dc2626 ${percentualSucessos + percentualIgnorados}% 100%
+                )`,
+              }}
+            >
               <div className="absolute inset-4 bg-white rounded-full flex flex-col items-center justify-center">
-                <span className="text-3xl font-bold text-gray-900">{percentualFalhas}%</span><span className="text-xs text-gray-500">com falha</span>
+                <span className="text-3xl font-bold text-gray-900">{total}</span>
+                <span className="text-xs text-gray-500">processadas</span>
               </div>
             </div>
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs">
+            <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-green-600" /><span className="text-gray-600">{percentualSucessos}% sucesso</span></div>
+            <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">{percentualIgnorados}% ignorado</span></div>
+            <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-red-600" /><span className="text-gray-600">{percentualFalhas}% falha</span></div>
           </div>
         </div>
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
@@ -139,14 +165,46 @@ export default function CertificadosVencidos() {
       </section>
 
       <section className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="p-6 border-b border-gray-200 flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
-          <div><h3 className="text-lg font-medium text-gray-900">Empresas com falha ({empresas.length})</h3><p className="text-sm text-gray-500">Pendências encontradas no último relatório</p></div>
-          <div className="relative"><Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa, CNPJ ou erro" className="w-full sm:w-72 pl-10 pr-4 py-2 border border-gray-300 rounded-lg" /></div>
+        <div className="p-6 border-b border-gray-200">
+          <div className="flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-lg font-medium text-gray-900">Empresas por resultado</h3>
+              <p className="text-sm text-gray-500">Dados nominais disponíveis no último relatório</p>
+            </div>
+            <div className="relative"><Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa, CNPJ ou resultado" className="w-full sm:w-72 pl-10 pr-4 py-2 border border-gray-300 rounded-lg" /></div>
+          </div>
+          <div className="mt-5 flex gap-2" role="tablist" aria-label="Resultado das empresas">
+            <button
+              onClick={() => { setResultadoAtivo('falhas'); setBusca(''); }}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${resultadoAtivo === 'falhas' ? 'bg-red-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              role="tab"
+              aria-selected={resultadoAtivo === 'falhas'}
+            >
+              Com falha ({falhas})
+            </button>
+            <button
+              onClick={() => { setResultadoAtivo('sucessos'); setBusca(''); }}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${resultadoAtivo === 'sucessos' ? 'bg-green-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              role="tab"
+              aria-selected={resultadoAtivo === 'sucessos'}
+            >
+              Com sucesso ({sucessos})
+            </button>
+          </div>
         </div>
-        <div className="overflow-x-auto"><table className="w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CNPJ</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Erro encontrado</th></tr></thead>
-          <tbody className="divide-y divide-gray-200">{empresas.map((item, indice) => <tr key={`${item.cnpj}-${indice}`} className="hover:bg-gray-50"><td className="px-6 py-4 text-sm font-medium text-gray-900">{item.nome || 'Não informada'}</td><td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatarCnpj(item.cnpj)}</td><td className="px-6 py-4 text-sm text-red-700"><span className="inline-flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{item.motivo || 'Motivo não informado'}</span></td></tr>)}</tbody>
+        <div className="overflow-x-auto"><table className="w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CNPJ</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Resultado</th></tr></thead>
+          <tbody className="divide-y divide-gray-200">{empresas.map((item, indice) => <tr key={`${item.cnpj}-${indice}`} className="hover:bg-gray-50"><td className="px-6 py-4 text-sm font-medium text-gray-900">{item.nome || 'Não informada'}</td><td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatarCnpj(item.cnpj)}</td><td className={`px-6 py-4 text-sm ${resultadoAtivo === 'falhas' ? 'text-red-700' : 'text-green-700'}`}>
+            {resultadoAtivo === 'falhas'
+              ? <span className="inline-flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{item.motivo || 'Motivo não informado'}</span>
+              : <span className="inline-flex gap-2 font-medium"><CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />Processada com sucesso</span>}
+          </td></tr>)}</tbody>
         </table></div>
-        {!carregando && !empresas.length && !erro && <p className="p-8 text-center text-gray-500">Nenhuma empresa com falha encontrada.</p>}
+        {!carregando && !empresas.length && !erro && resultadoAtivo === 'falhas' && <p className="p-8 text-center text-gray-500">Nenhuma empresa com falha encontrada.</p>}
+        {!carregando && !empresas.length && !erro && resultadoAtivo === 'sucessos' && <div className="p-8 text-center">
+          <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-green-500" />
+          <p className="font-medium text-gray-900">O resumo informa {sucessos} empresas com sucesso.</p>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">Este arquivo ainda não inclui a lista nominal <code>empresas_com_sucesso</code>. Quando a automação adicionar essa lista ao JSON, as empresas aparecerão aqui automaticamente.</p>
+        </div>}
       </section>
     </main>
   </div>;

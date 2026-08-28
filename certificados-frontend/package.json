@@ -3,7 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --turbopack",
+    "dev": "powershell -NoProfile -ExecutionPolicy Bypass -File ../scripts/dev.ps1",
+    "dev:frontend": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "next lint"
