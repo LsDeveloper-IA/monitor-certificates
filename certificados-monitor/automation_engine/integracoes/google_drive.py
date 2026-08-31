@@ -11,6 +11,7 @@ from googleapiclient.discovery import build
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
 ]
+ESCOPO_DRIVE_COMPLETO = "https://www.googleapis.com/auth/drive"
 
 def conectar_google_drive(pasta_projeto):
     pasta_projeto = Path(pasta_projeto)
@@ -19,10 +20,17 @@ def conectar_google_drive(pasta_projeto):
     credenciais = None
 
     if arquivo_token.exists():
+        # Não substitui os escopos salvos no token. Um token legado pode ter o
+        # escopo completo do Drive, que já inclui leitura; forçar "readonly"
+        # durante a renovação faz o Google responder com invalid_scope.
         credenciais = Credentials.from_authorized_user_file(
             arquivo_token,
-            SCOPES,
         )
+        escopos_concedidos = set(credenciais.scopes or [])
+        if not escopos_concedidos.intersection({SCOPES[0], ESCOPO_DRIVE_COMPLETO}):
+            raise ValueError(
+                "O token do Google não possui permissão de leitura do Drive."
+            )
 
     if not credenciais or not credenciais.valid:
         if (
@@ -136,8 +144,8 @@ def ler_senha_google_docs(drive, documento_id):
     return conteudo_em_bytes.decode("utf-8-sig").rstrip("\r\n")
 
 
-def ler_relatorio_json_mais_recente(drive, pasta_id):
-    """Baixa e decodifica o JSON mais recentemente alterado de uma pasta."""
+def listar_relatorios_json(drive, pasta_id):
+    """Lista todos os JSONs da pasta, do mais antigo para o mais recente."""
     pasta_id = str(pasta_id or "").strip()
     if not pasta_id:
         raise ValueError(
@@ -145,23 +153,40 @@ def ler_relatorio_json_mais_recente(drive, pasta_id):
         )
 
     pasta_id_seguro = pasta_id.replace("'", "\\'")
-    resultado = drive.files().list(
-        q=(
-            f"'{pasta_id_seguro}' in parents and trashed = false and "
-            "(mimeType = 'application/json' or name contains '.json')"
-        ),
-        pageSize=100,
-        orderBy="modifiedTime desc",
-        fields="files(id, name, modifiedTime, mimeType)",
-        spaces="drive",
-        supportsAllDrives=True,
-        includeItemsFromAllDrives=True,
-    ).execute()
-    arquivos = resultado.get("files", [])
-    if not arquivos:
-        raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
+    arquivos = []
+    pagina_seguinte = None
+    while True:
+        resultado = drive.files().list(
+            q=(
+                f"'{pasta_id_seguro}' in parents and trashed = false and "
+                "(mimeType = 'application/json' or name contains '.json')"
+            ),
+            pageSize=1000,
+            pageToken=pagina_seguinte,
+            orderBy="modifiedTime asc",
+            fields="nextPageToken, files(id, name, modifiedTime, mimeType)",
+            spaces="drive",
+            supportsAllDrives=True,
+            includeItemsFromAllDrives=True,
+        ).execute()
+        arquivos.extend(resultado.get("files", []))
+        pagina_seguinte = resultado.get("nextPageToken")
+        if not pagina_seguinte:
+            break
 
-    arquivo = arquivos[0]
+    return sorted(
+        arquivos,
+        key=lambda arquivo: (
+            arquivo.get("modifiedTime", ""),
+            arquivo.get("id", ""),
+        ),
+    )
+
+
+def ler_relatorio_json(drive, arquivo):
+    """Baixa e decodifica um JSON descrito pela API do Drive."""
+    if not isinstance(arquivo, dict) or not arquivo.get("id"):
+        raise ValueError("Metadados inválidos para o arquivo JSON do Drive.")
     conteudo = drive.files().get_media(
         fileId=arquivo["id"], supportsAllDrives=True
     ).execute()
@@ -177,3 +202,11 @@ def ler_relatorio_json_mais_recente(drive, pasta_id):
         "modificado_em": arquivo.get("modifiedTime"),
     }
     return dados
+
+
+def ler_relatorio_json_mais_recente(drive, pasta_id):
+    """Baixa e decodifica o JSON mais recentemente alterado de uma pasta."""
+    arquivos = listar_relatorios_json(drive, pasta_id)
+    if not arquivos:
+        raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
+    return ler_relatorio_json(drive, arquivos[-1])
