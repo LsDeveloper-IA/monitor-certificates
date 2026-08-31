@@ -33,6 +33,7 @@ class ExecutorAutomacao:
         self._atualizar_excel = False
         self._notificacoes_teste = False
         self._resumo_envios = self._novo_resumo_envios()
+        self._arquivo_log_execucao = None
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
@@ -100,6 +101,11 @@ class ExecutorAutomacao:
             "atualizou_excel": self._atualizar_excel,
             "notificacoes_teste": self._notificacoes_teste,
             "resumo_envios": dict(self._resumo_envios),
+            "arquivo_log": (
+                self._arquivo_log_execucao.name
+                if self._arquivo_log_execucao
+                else None
+            ),
         }
 
     def _registrar_historico(self):
@@ -119,6 +125,7 @@ class ExecutorAutomacao:
         if texto:
             with self._lock:
                 self._logs.append(texto)
+                arquivo_log = self._arquivo_log_execucao
                 texto_limpo = re.sub(r"\x1b\[[0-9;]*m", "", texto)
                 for rotulo, campo in self._PADROES_RESUMO_ENVIOS.items():
                     encontrado = re.search(
@@ -128,6 +135,14 @@ class ExecutorAutomacao:
                     )
                     if encontrado:
                         self._resumo_envios[campo] = int(encontrado.group(1))
+            if arquivo_log:
+                try:
+                    with arquivo_log.open("a", encoding="utf-8") as arquivo:
+                        arquivo.write(f"{texto_limpo}\n")
+                except OSError:
+                    # O acompanhamento em memoria continua funcionando mesmo
+                    # se o arquivo local estiver temporariamente indisponivel.
+                    pass
 
     def executar(self, atualizar_excel=False, notificacoes_teste=False):
         with self._lock:
@@ -140,6 +155,11 @@ class ExecutorAutomacao:
             self._codigo_saida = None
             self._erro = None
             self._execucao_id = uuid.uuid4().hex
+            pasta_logs = self._arquivo_historico.parent / "execucoes"
+            pasta_logs.mkdir(parents=True, exist_ok=True)
+            self._arquivo_log_execucao = (
+                pasta_logs / f"execucao-{self._execucao_id}.log"
+            )
             self._atualizar_excel = atualizar_excel
             self._notificacoes_teste = notificacoes_teste
             self._resumo_envios = self._novo_resumo_envios()

@@ -21,6 +21,7 @@ DIAS_MINIMOS_ALERTA = 1
 DIAS_MAXIMOS_ALERTA = 30
 LIMITE_MENSAGEM = 2000
 LIMITE_VARIAVEL_TEMPLATE = 900
+INTERVALO_ENTRE_TEMPLATES = 8.0
 
 
 def preparar_alertas_internos(resultados):
@@ -369,7 +370,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
         start=1,
     ):
         if numero > 1:
-            sleep(5.1)
+            sleep(INTERVALO_ENTRE_TEMPLATES)
         try:
             resultado = enviar_template(
                 pasta_projeto,
@@ -386,9 +387,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 f"pela WhatsContabil ({len(itens)} certificado(s))."
             )
         except (ErroWhatsContabil, OSError) as erro:
-            restantes = len(transmissoes) - numero + 1
-            erro_parametros = "par" in str(erro).casefold()
-            resumo["falhas"] += restantes if erro_parametros else 1
+            resumo["falhas"] += 1
             resumo["detalhes_falhas"].append({
                 "empresa": ", ".join(
                     item.get("empresa") or "Empresa nao informada"
@@ -398,12 +397,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 "erro": str(erro),
             })
             print(f"Falha no template de {tipo}: {erro}")
-            if erro_parametros:
-                print(
-                    "Demais templates cancelados para evitar repetir uma "
-                    "requisicao com formato invalido."
-                )
-                break
+            print("O lote continuara com o proximo template.")
 
     return resumo
 

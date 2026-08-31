@@ -54,6 +54,36 @@ def _interpretar_erro_http(resposta):
         resposta.status_code,
         f"A API respondeu com o status HTTP {resposta.status_code}.",
     )
+
+    # A WhatsContabil costuma devolver o motivo real em JSON. Mantemos apenas
+    # campos textuais conhecidos, limitados em tamanho, para ajudar no
+    # diagnostico sem registrar token, cabecalhos ou o corpo completo.
+    detalhe = ""
+    try:
+        conteudo = resposta.json()
+    except ValueError:
+        conteudo = None
+
+    if isinstance(conteudo, dict):
+        candidatos = (
+            conteudo.get("message"),
+            conteudo.get("error"),
+            conteudo.get("detail"),
+            conteudo.get("details"),
+        )
+        detalhe = next(
+            (
+                str(valor).strip()
+                for valor in candidatos
+                if isinstance(valor, (str, int, float))
+                and str(valor).strip()
+            ),
+            "",
+        )
+
+    if detalhe:
+        detalhe = re.sub(r"\s+", " ", detalhe)[:500]
+        mensagem = f"{mensagem} Detalhe da API: {detalhe}"
     raise ErroWhatsContabil(mensagem)
 
 

@@ -124,7 +124,7 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
             "A API recusou os parametros da requisicao."
         ),
     )
-    def test_erro_de_parametros_cancela_as_demais_tentativas(
+    def test_erro_em_um_template_nao_cancela_as_demais_tentativas(
         self,
         enviar_template_oficial,
         _sleep,
@@ -145,7 +145,7 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
                 2,
             )
 
-        enviar_template_oficial.assert_called_once()
+        self.assertEqual(enviar_template_oficial.call_count, 3)
         self.assertEqual(resumo["enviados"], 0)
         self.assertEqual(resumo["falhas"], 3)
 
