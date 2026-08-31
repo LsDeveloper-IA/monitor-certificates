@@ -17,6 +17,7 @@ interface Relatorio {
   empresas_certas?: EmpresaResultado[];
   empresas_corretas?: EmpresaResultado[];
   arquivo_drive?: { nome?: string; modificado_em?: string };
+  historico?: { acumulado?: boolean; arquivos_processados?: number; empresas_acompanhadas?: number };
 }
 
 function formatarCnpj(valor: string) {
@@ -54,6 +55,8 @@ export default function CertificadosVencidos() {
     const escuro = localStorage.getItem('tema') === 'escuro';
     setModoEscuro(escuro); document.documentElement.classList.toggle('dark', escuro);
     carregar();
+    const intervalo = window.setInterval(carregar, 30000);
+    return () => window.clearInterval(intervalo);
   }, [carregar]);
 
   const alternarTema = () => {
@@ -120,6 +123,9 @@ export default function CertificadosVencidos() {
           {relatorio?.executado_em ? `Executado em ${new Date(relatorio.executado_em).toLocaleString('pt-BR')}` : 'Aguardando dados do Drive'}
           {relatorio?.arquivo_drive?.nome && ` • ${relatorio.arquivo_drive.nome}`}
         </p>
+        {relatorio?.historico?.acumulado && <p className="mt-1 text-xs text-blue-600">
+          Histórico acumulado • {relatorio.historico.arquivos_processados || 0} versão(ões) processada(s) • {relatorio.historico.empresas_acompanhadas || 0} empresa(s) identificada(s)
+        </p>}
       </div>
 
       <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
