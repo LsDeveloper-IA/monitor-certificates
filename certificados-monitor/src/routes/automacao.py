@@ -177,6 +177,7 @@ def executar_automacao():
     try:
         executor_automacao.executar(
             atualizar_excel=dados.get("atualizar_excel") is True,
+            notificacoes_teste=dados.get("notificacoes_teste") is True,
         )
         return jsonify(
             {

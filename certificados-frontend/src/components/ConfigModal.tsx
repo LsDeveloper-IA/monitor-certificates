@@ -101,6 +101,7 @@ export default function ConfigModal({
   const [agendadorEditado, setAgendadorEditado] = useState(false);
   const [chaveAdmin, setChaveAdmin] = useState('');
   const [atualizarExcel, setAtualizarExcel] = useState(false);
+  const [enviarMensagens, setEnviarMensagens] = useState(false);
   const [confirmarExecucao, setConfirmarExecucao] = useState(false);
   const [automacaoStatus, setAutomacaoStatus] = useState({
     id: null as string | null,
@@ -251,7 +252,10 @@ export default function ConfigModal({
           'Content-Type': 'application/json',
           'X-Admin-Key': chaveAdmin,
         },
-        body: JSON.stringify({ atualizar_excel: atualizarExcel }),
+        body: JSON.stringify({
+          atualizar_excel: atualizarExcel,
+          notificacoes_teste: enviarMensagens,
+        }),
       });
       const conteudo = await resposta.json();
       if (!resposta.ok) throw new Error(conteudo.erro || 'Falha ao iniciar');
@@ -855,7 +859,7 @@ export default function ConfigModal({
                   <h5 className="font-medium text-gray-900">Execucao manual</h5>
                   <p className="mt-1 text-sm text-gray-600">
                     Le os certificados, consulta os clientes e atualiza este site.
-                    E-mails e WhatsContabil permanecem desativados.
+                    O envio de mensagens pode ser ativado abaixo sem depender do agendador.
                   </p>
                 </div>
                 <label className="block text-sm text-gray-700">
@@ -876,6 +880,20 @@ export default function ConfigModal({
                     onChange={(evento) => setAtualizarExcel(evento.target.checked)}
                   />
                   Atualizar tambem a copia do Excel
+                </label>
+                <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+                  <input
+                    type="checkbox"
+                    checked={enviarMensagens}
+                    onChange={(evento) => setEnviarMensagens(evento.target.checked)}
+                    className="mt-0.5"
+                  />
+                  <span>
+                    <span className="block font-medium">Enviar mensagens</span>
+                    <span className="mt-1 block text-xs">
+                      Usa a WhatsContabil e envia somente para o numero de teste configurado.
+                    </span>
+                  </span>
                 </label>
                 <div className="flex flex-wrap items-center gap-3">
                   <button
@@ -903,11 +921,14 @@ export default function ConfigModal({
                 {confirmarExecucao && !automacaoStatus.executando && (
                   <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
                     <p className="font-semibold">Confirme antes de iniciar</p>
-                    <ul className="mt-2 space-y-1">
+                    <ul className="mt-2 space-y-1 [&>li:last-child]:hidden">
                       <li>• Certificados e clientes serão consultados.</li>
                       <li>• Atualização do Excel: {atualizarExcel ? 'ativada' : 'desativada'}.</li>
                       <li>• E-mails e WhatsContábil: desativados nesta execução manual.</li>
                     </ul>
+                    <p className="mt-1">
+                      Mensagens pela WhatsContabil: {enviarMensagens ? 'ativadas para o numero de teste' : 'desativadas'}.
+                    </p>
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"

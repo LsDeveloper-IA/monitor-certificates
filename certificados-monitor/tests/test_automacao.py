@@ -78,6 +78,28 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
         )
         self.assertEqual(resposta.status_code, 400)
 
+    @patch("src.routes.automacao.executor_automacao.executar")
+    @patch("src.routes.automacao.executor_automacao.status", return_value={})
+    def test_execucao_manual_encaminha_opcao_de_notificacoes(
+        self,
+        _status,
+        executar,
+    ):
+        resposta = self.cliente.post(
+            "/api/automacao/executar",
+            headers={"X-Automation-Key": "chave-interna-teste"},
+            json={
+                "atualizar_excel": True,
+                "notificacoes_teste": True,
+            },
+        )
+
+        self.assertEqual(resposta.status_code, 202)
+        executar.assert_called_once_with(
+            atualizar_excel=True,
+            notificacoes_teste=True,
+        )
+
 
 class ExecutorAutomacaoTestCase(unittest.TestCase):
     def test_bloqueia_segunda_execucao_durante_inicializacao(self):
