@@ -12,6 +12,7 @@ from sqlalchemy import func
 from automation_engine.integracoes.google_drive import (
     conectar_google_drive,
     ler_relatorio_json,
+    listar_empresas_drive,
     listar_relatorios_json,
 )
 from src.models.empresa_relatorio import EmpresaRelatorio, RelatorioDriveProcessado
@@ -49,6 +50,31 @@ def _deduplicar_empresas(empresas):
         if chave:
             unicas[chave] = empresa
     return list(unicas.values())
+
+
+def _chave_nome(empresa):
+    nome = unicodedata.normalize("NFKD", str(empresa.get("nome") or ""))
+    nome = "".join(letra for letra in nome if not unicodedata.combining(letra))
+    return re.sub(r"[^a-z0-9]+", " ", nome.casefold()).strip()
+
+
+def _sucessos_por_empresas_drive(empresas_drive, falhas, sucessos_explicitos):
+    """No Drive, toda empresa sem falha Ã© considerada um sucesso."""
+    nomes_com_falha = {_chave_nome(empresa) for empresa in falhas}
+    nomes_com_falha.discard("")
+    sucessos_por_nome = {
+        _chave_nome(empresa): empresa
+        for empresa in sucessos_explicitos
+        if _chave_nome(empresa) and _chave_nome(empresa) not in nomes_com_falha
+    }
+    for empresa in empresas_drive:
+        chave = _chave_nome(empresa)
+        if chave and chave not in nomes_com_falha:
+            sucessos_por_nome.setdefault(chave, empresa)
+    return sorted(
+        sucessos_por_nome.values(),
+        key=lambda empresa: _chave_nome(empresa),
+    )
 
 
 def _normalizar_relatorio(dados):
@@ -240,7 +266,18 @@ def sincronizar_relatorios_drive():
                 continue
             dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
             _acumular_relatorio(dados, arquivo)
-        return _montar_relatorio_acumulado()
+        relatorio = _montar_relatorio_acumulado()
+        if os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip():
+            empresas_drive = listar_empresas_drive(drive)
+            relatorio["empresas_com_sucesso"] = _sucessos_por_empresas_drive(
+                empresas_drive,
+                relatorio["empresas_com_falha"],
+                relatorio["empresas_com_sucesso"],
+            )
+            total_sucessos = len(relatorio["empresas_com_sucesso"])
+            relatorio["resumo"]["certas"] = total_sucessos
+            relatorio["resumo"]["sucessos"] = total_sucessos
+        return relatorio
 
 
 @relatorio_bp.route("/relatorios/certificados-vencidos", methods=["GET"])

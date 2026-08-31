@@ -135,6 +135,30 @@ def buscar_documentos_de_senha(drive):
     return documentos_por_empresa
 
 
+def listar_empresas_drive(drive):
+    """Lista as empresas pela pasta principal de e-CNPJ no Drive."""
+    pasta_e_cnpj_id = os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip()
+    if not pasta_e_cnpj_id:
+        raise ValueError(
+            "GOOGLE_DRIVE_PASTA_E_CNPJ_ID nÃ£o foi configurado no arquivo .env."
+        )
+
+    pasta_id_seguro = pasta_e_cnpj_id.replace("'", "\\'")
+    pastas = listar_arquivos(
+        drive,
+        (
+            f"'{pasta_id_seguro}' in parents and "
+            "mimeType = 'application/vnd.google-apps.folder' and "
+            "trashed = false"
+        ),
+    )
+    return [
+        {"cnpj": "", "nome": str(pasta.get("name") or "").strip()}
+        for pasta in pastas
+        if str(pasta.get("name") or "").strip()
+    ]
+
+
 def ler_senha_google_docs(drive, documento_id):
     conteudo_em_bytes = drive.files().export(
         fileId=documento_id,

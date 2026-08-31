@@ -3,7 +3,10 @@ from pathlib import Path
 
 import pyodbc
 from dotenv import load_dotenv
-from utils.caminhos import obter_pasta_aplicacao
+try:
+    from automation_engine.utils.caminhos import obter_pasta_aplicacao
+except ImportError:  # Compatibilidade com a execuÃ§Ã£o direta da automaÃ§Ã£o.
+    from utils.caminhos import obter_pasta_aplicacao
 
 
 class ErroConexaoBanco(RuntimeError):

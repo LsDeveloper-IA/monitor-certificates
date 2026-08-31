@@ -6,6 +6,7 @@ from flask import Flask
 
 from src.models.user import db
 from src.routes.relatorio import relatorio_bp
+from src.routes.relatorio import _sucessos_por_empresas_drive
 
 
 def empresa(numero, motivo="Certificado não encontrado"):
@@ -50,6 +51,20 @@ class RelatorioDriveTestCase(unittest.TestCase):
             db.session.remove()
             db.drop_all()
         os.environ.pop("GOOGLE_DRIVE_PASTA_RELATORIOS_ID", None)
+
+    def test_empresas_do_drive_sem_falha_sao_listadas_como_sucesso(self):
+        empresas_drive = [empresa(1), empresa(2), empresa(3)]
+
+        sucessos = _sucessos_por_empresas_drive(
+            empresas_drive,
+            [empresa(2)],
+            [],
+        )
+
+        self.assertEqual(
+            [item["nome"] for item in sucessos],
+            ["Empresa 1", "Empresa 3"],
+        )
 
     @patch("src.routes.relatorio.ler_relatorio_json")
     @patch("src.routes.relatorio.listar_relatorios_json")
