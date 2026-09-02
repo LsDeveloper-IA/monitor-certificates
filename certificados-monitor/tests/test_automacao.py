@@ -70,6 +70,35 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
         self.assertNotIn("token", conteudo)
         self.assertNotIn("senha", conteudo)
 
+    def test_saude_reconhece_templates_pdf_configurados(self):
+        with patch.dict(
+            os.environ,
+            {
+                "WHATSCONTABIL_TEMPLATE_EQUIPE_TESTE": "",
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_TESTE": "",
+                "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE": (
+                    "relatorio_pendencias_certificados"
+                ),
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE": (
+                    "relatorio_renovacoes_responsavel"
+                ),
+            },
+            clear=False,
+        ):
+            resposta = self.cliente.get(
+                "/api/automacao/saude",
+                headers={"X-Automation-Key": "chave-interna-teste"},
+            )
+
+        integracoes = {
+            item["id"]: item for item in resposta.json["integracoes"]
+        }
+        self.assertEqual(integracoes["template_equipe"]["estado"], "configurado")
+        self.assertEqual(
+            integracoes["template_responsavel"]["estado"],
+            "configurado",
+        )
+
     def test_rejeita_horario_invalido_no_agendador(self):
         resposta = self.cliente.post(
             "/api/automacao/agendador-configurar",
@@ -102,6 +131,32 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
 
 
 class ExecutorAutomacaoTestCase(unittest.TestCase):
+    @patch(
+        "src.services.executor_automacao.dotenv_values",
+        return_value={
+            "WHATSCONTABIL_TEMPLATE_EQUIPE_TESTE": "resumo_pendencias_certificados",
+            "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_TESTE": "resumo_renovacoes_responsavel",
+            "MODO_WHATSCONTABIL": "real",
+        },
+    )
+    def test_cada_execucao_recarrega_env_e_preserva_modo_teste(self, _dotenv):
+        ambiente = ExecutorAutomacao()._montar_ambiente_execucao(
+            atualizar_excel=False,
+            notificacoes_teste=True,
+        )
+
+        self.assertEqual(
+            ambiente["WHATSCONTABIL_TEMPLATE_EQUIPE_TESTE"],
+            "resumo_pendencias_certificados",
+        )
+        self.assertEqual(
+            ambiente["WHATSCONTABIL_TEMPLATE_RESPONSAVEL_TESTE"],
+            "resumo_renovacoes_responsavel",
+        )
+        self.assertEqual(ambiente["MODO_WHATSCONTABIL"], "teste")
+        self.assertEqual(ambiente["ATUALIZAR_EXCEL_AUTOMATICO"], "nao")
+        self.assertEqual(ambiente["ENVIAR_WHATSCONTABIL_AUTOMATICO"], "sim")
+
     def test_bloqueia_segunda_execucao_durante_inicializacao(self):
         executor = ExecutorAutomacao()
 

@@ -221,6 +221,7 @@ def enviar_template(
     nome_template,
     whatsapp_id,
     variaveis=None,
+    arquivo=None,
     timeout=30,
 ):
     """Envia um template oficial. Não repete automaticamente em caso de erro."""
@@ -229,24 +230,54 @@ def enviar_template(
     url = f"{url_base}/api/messages/send"
     headers = {"Authorization": f"Bearer {token}"}
 
-    campos = {
-        "to": (None, destinatario),
-        "template": (None, str(nome_template)),
-        "whatsappId": (None, str(whatsapp_id)),
+    dados = {
+        "to": destinatario,
+        "template": str(nome_template),
+        "whatsappId": str(whatsapp_id),
     }
     if variaveis is not None:
-        campos["message"] = (
-            None,
-            json.dumps(list(variaveis), ensure_ascii=False),
+        dados["message"] = json.dumps(
+            list(variaveis),
+            ensure_ascii=False,
         )
 
+    arquivo_aberto = None
+    arquivos = None
+    if arquivo is not None:
+        caminho_arquivo = Path(arquivo)
+        if not caminho_arquivo.is_file():
+            raise ErroWhatsContabil(
+                "O arquivo do relatorio nao foi encontrado para o envio."
+            )
+        if caminho_arquivo.stat().st_size > 20 * 1024 * 1024:
+            raise ErroWhatsContabil(
+                "O arquivo do relatorio ultrapassa o limite de 20 MB da API."
+            )
+        arquivo_aberto = caminho_arquivo.open("rb")
+        # A API da WhatsContabil espera exatamente o objeto do arquivo neste
+        # campo. O requests monta filename e Content-Length no multipart.
+        arquivos = {"files": arquivo_aberto}
+
     try:
-        resposta = requests.post(
-            url,
-            headers=headers,
-            files=campos,
-            timeout=timeout,
-        )
+        if arquivos is not None:
+            resposta = requests.post(
+                url,
+                headers=headers,
+                data=dados,
+                files=arquivos,
+                timeout=timeout,
+            )
+        else:
+            # MantǸm o fluxo jǭ validado dos templates sem anexo.
+            campos_multipart = {
+                chave: (None, valor) for chave, valor in dados.items()
+            }
+            resposta = requests.post(
+                url,
+                headers=headers,
+                files=campos_multipart,
+                timeout=timeout,
+            )
     except requests.Timeout as erro:
         raise ErroWhatsContabil(
             "O envio demorou mais de 30 segundos. O resultado ficou incerto; "
@@ -258,6 +289,9 @@ def enviar_template(
         ) from erro
     except requests.RequestException as erro:
         raise ErroWhatsContabil(f"Falha na requisição: {erro}") from erro
+    finally:
+        if arquivo_aberto is not None:
+            arquivo_aberto.close()
 
     if not 200 <= resposta.status_code < 300:
         _interpretar_erro_http(resposta)
@@ -266,6 +300,79 @@ def enviar_template(
         conteudo = resposta.json()
     except ValueError:
         conteudo = {"message": resposta.text.strip() or "Envio aceito pela API."}
+
+    return {
+        "destinatario": destinatario,
+        "status_http": resposta.status_code,
+        "resposta": conteudo,
+    }
+
+
+def enviar_midia(
+    pasta_projeto,
+    telefone,
+    mensagem,
+    whatsapp_id,
+    arquivo,
+    timeout=30,
+):
+    """Envia um arquivo como midia em uma conversa que ja foi aberta."""
+    url_base, token = carregar_configuracao(pasta_projeto)
+    destinatario = normalizar_telefone_brasil(telefone)
+    mensagem = str(mensagem or "").strip()
+    caminho_arquivo = Path(arquivo)
+
+    if not mensagem:
+        raise ErroWhatsContabil("A legenda da midia nao pode estar vazia.")
+    if len(mensagem) > 2000:
+        raise ErroWhatsContabil(
+            "A legenda da midia ultrapassa o limite de 2.000 caracteres."
+        )
+    if not caminho_arquivo.is_file():
+        raise ErroWhatsContabil("O arquivo da midia nao foi encontrado.")
+    if caminho_arquivo.stat().st_size > 20 * 1024 * 1024:
+        raise ErroWhatsContabil(
+            "O arquivo da midia ultrapassa o limite de 20 MB da API."
+        )
+
+    url = f"{url_base}/api/messages/send"
+    headers = {"Authorization": f"Bearer {token}"}
+    arquivo_aberto = caminho_arquivo.open("rb")
+    campos = {
+        "to": (None, destinatario),
+        "message": (None, mensagem),
+        "whatsappId": (None, str(whatsapp_id)),
+        "medias": arquivo_aberto,
+    }
+
+    try:
+        resposta = requests.post(
+            url,
+            headers=headers,
+            files=campos,
+            timeout=timeout,
+        )
+    except requests.Timeout as erro:
+        raise ErroWhatsContabil(
+            "O envio da midia demorou mais de 30 segundos. O resultado ficou "
+            "incerto; nao repita antes de consultar o historico."
+        ) from erro
+    except requests.ConnectionError as erro:
+        raise ErroWhatsContabil(
+            "Nao foi possivel conectar a API durante o envio da midia."
+        ) from erro
+    except requests.RequestException as erro:
+        raise ErroWhatsContabil(f"Falha na requisicao da midia: {erro}") from erro
+    finally:
+        arquivo_aberto.close()
+
+    if not 200 <= resposta.status_code < 300:
+        _interpretar_erro_http(resposta)
+
+    try:
+        conteudo = resposta.json()
+    except ValueError:
+        conteudo = {"message": resposta.text.strip() or "Midia aceita pela API."}
 
     return {
         "destinatario": destinatario,

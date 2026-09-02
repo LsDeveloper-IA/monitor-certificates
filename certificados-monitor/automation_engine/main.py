@@ -25,6 +25,7 @@ from dotenv import load_dotenv
 
 from alertas import enviar_alertas, preparar_alertas, simular_alertas
 from alertas_whatscontabil import (
+    classificar_alertas_por_contato,
     enviar_alertas_internos,
     preparar_alertas_internos,
     simular_alertas_internos,
@@ -42,13 +43,14 @@ from integracoes.google_drive import (
     ler_senha_google_docs,
 )
 from integracoes.api_monitor import ErroIntegracaoApi, sincronizar_com_api
-from utils.caminhos import obter_pasta_aplicacao
+from utils.caminhos import obter_arquivo_env, obter_pasta_aplicacao
 from utils.terminal import escrever, progresso, tabela, titulo
 
 
 PASTA_APLICACAO = obter_pasta_aplicacao()
+ARQUIVO_ENV = obter_arquivo_env(PASTA_APLICACAO)
 pasta_planilhas_locais = PASTA_APLICACAO / "planilhas"
-load_dotenv(PASTA_APLICACAO / ".env")
+load_dotenv(ARQUIVO_ENV)
 pasta_e_cnpj = Path(os.getenv("PASTA_CERTIFICADOS", "certificados"))
 arquivo_excel = Path(os.getenv("ARQUIVO_EXCEL", "relatorio_certificados.xlsx"))
 
@@ -1688,7 +1690,7 @@ print(
     f"{len(alertas_pendentes)}"
 )
 
-load_dotenv(PASTA_APLICACAO / ".env")
+load_dotenv(ARQUIVO_ENV)
 modo_email = os.getenv("MODO_EMAIL", "simulacao").strip().casefold()
 
 if alertas_pendentes:
@@ -1720,9 +1722,20 @@ numero_teste_whatscontabil = os.getenv(
 whatsapp_id_texto = os.getenv("WHATSCONTABIL_WHATSAPP_ID", "2").strip()
 
 print("---------------------------")
+alertas_clientes_whats, pendencias_equipe_whats = (
+    classificar_alertas_por_contato(alertas_internos)
+)
 print(
-    "Alertas internos entre 1 e 30 dias para a WhatsContábil: "
-    f"{len(alertas_internos)}"
+    "Avisos de clientes entre 1 e 30 dias para a WhatsContábil: "
+    f"{len(alertas_clientes_whats)}"
+)
+print(
+    "Certificados no resumo do responsável: "
+    f"{len(alertas_clientes_whats)}"
+)
+print(
+    "Pendências cadastrais de certificados válidos para a equipe: "
+    f"{len(pendencias_equipe_whats)}"
 )
 
 if alertas_internos:
@@ -1748,7 +1761,7 @@ if alertas_internos:
             )
         else:
             print(
-                "ATENÇÃO: os três tipos de aviso serão enviados somente "
+                "ATENÇÃO: os avisos serão enviados somente "
                 "ao número de teste configurado; nenhum cliente receberá "
                 "mensagem nesta fase."
             )

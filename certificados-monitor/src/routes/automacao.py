@@ -120,12 +120,55 @@ def saude_integracoes():
     template_configurado = bool(os.getenv("WHATSCONTABIL_TEMPLATE_TESTE", "").strip())
     integracoes.append({
         "id": "template",
-        "nome": "Template de avisos",
+        "nome": "Template de avisos aos clientes",
         "estado": "configurado" if template_configurado else "atencao",
         "detalhe": (
             "Nome configurado; confirme a aprovação na WhatsContábil."
             if template_configurado
             else "Nome do template aprovado ainda não configurado."
+        ),
+    })
+
+    nome_template_equipe = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_EQUIPE_TESTE", ""
+    ).strip()
+    nome_template_equipe_documento = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE", ""
+    ).strip()
+    template_equipe_configurado = (
+        nome_template_equipe_documento == "relatorio_pendencias_certificados"
+        or nome_template_equipe == "resumo_pendencias_certificados"
+    )
+    integracoes.append({
+        "id": "template_equipe",
+        "nome": "Template interno da equipe",
+        "estado": "configurado" if template_equipe_configurado else "atencao",
+        "detalhe": (
+            "Nome configurado; confirme a aprovação na WhatsContábil."
+            if template_equipe_configurado
+            else "Aguardando o template Utility consolidado da equipe."
+        ),
+    })
+
+    nome_template_responsavel = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_TESTE", ""
+    ).strip()
+    nome_template_responsavel_documento = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE", ""
+    ).strip()
+    template_responsavel_configurado = (
+        nome_template_responsavel_documento
+        == "relatorio_renovacoes_responsavel"
+        or nome_template_responsavel == "resumo_renovacoes_responsavel"
+    )
+    integracoes.append({
+        "id": "template_responsavel",
+        "nome": "Template interno do responsável",
+        "estado": "configurado" if template_responsavel_configurado else "atencao",
+        "detalhe": (
+            "Nome configurado; confirme a aprovação na WhatsContábil."
+            if template_responsavel_configurado
+            else "Aguardando o template Utility consolidado do responsável."
         ),
     })
 

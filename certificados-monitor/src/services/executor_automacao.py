@@ -9,6 +9,8 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 
 class ExecutorAutomacao:
     _PADROES_RESUMO_ENVIOS = {
@@ -57,6 +59,36 @@ class ExecutorAutomacao:
     @property
     def pasta_motor(self):
         return Path(__file__).resolve().parents[2] / "automation_engine"
+
+    @property
+    def arquivo_env(self):
+        return Path(__file__).resolve().parents[2] / ".env"
+
+    def _montar_ambiente_execucao(self, atualizar_excel, notificacoes_teste):
+        ambiente = os.environ.copy()
+        configuracao_atual = dotenv_values(self.arquivo_env)
+        ambiente.update({
+            str(chave): str(valor)
+            for chave, valor in configuracao_atual.items()
+            if valor is not None
+        })
+        ambiente.update(
+            {
+                "MODO_AUTOMATICO": "sim",
+                "ATUALIZAR_EXCEL_AUTOMATICO": "sim" if atualizar_excel else "nao",
+                "SINCRONIZAR_API_AUTOMATICO": "sim",
+                "ENVIAR_EMAIL_AUTOMATICO": "nao",
+                "ENVIAR_WHATSCONTABIL_AUTOMATICO": (
+                    "sim" if notificacoes_teste else "nao"
+                ),
+                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": (
+                    "sim" if notificacoes_teste else "nao"
+                ),
+                "MODO_WHATSCONTABIL": "teste",
+                "PYTHONUNBUFFERED": "1",
+            }
+        )
+        return ambiente
 
     def _carregar_historico(self):
         try:
@@ -180,22 +212,9 @@ class ExecutorAutomacao:
             raise
 
     def _executar_processo(self, atualizar_excel, notificacoes_teste):
-        ambiente = os.environ.copy()
-        ambiente.update(
-            {
-                "MODO_AUTOMATICO": "sim",
-                "ATUALIZAR_EXCEL_AUTOMATICO": "sim" if atualizar_excel else "nao",
-                "SINCRONIZAR_API_AUTOMATICO": "sim",
-                "ENVIAR_EMAIL_AUTOMATICO": "nao",
-                "ENVIAR_WHATSCONTABIL_AUTOMATICO": (
-                    "sim" if notificacoes_teste else "nao"
-                ),
-                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": (
-                    "sim" if notificacoes_teste else "nao"
-                ),
-                "MODO_WHATSCONTABIL": "teste",
-                "PYTHONUNBUFFERED": "1",
-            }
+        ambiente = self._montar_ambiente_execucao(
+            atualizar_excel,
+            notificacoes_teste,
         )
         try:
             processo = subprocess.Popen(
