@@ -121,6 +121,13 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertIsNone(status["duracao_segundos"])
         self.assertEqual(status["resumo_envios"]["email_enviados"], 0)
 
+    def test_usa_a_automacao_sieg_quando_ela_existe(self):
+        pasta_repositorio = Path(__file__).resolve().parents[2]
+        pasta_sieg = pasta_repositorio / "automacao-sieg"
+
+        self.assertTrue((pasta_sieg / "main.py").exists())
+        self.assertEqual(ExecutorAutomacao().pasta_motor, pasta_sieg)
+
     def test_resumo_de_envios_e_extraido_dos_logs(self):
         executor = ExecutorAutomacao()
 

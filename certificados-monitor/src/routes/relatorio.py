@@ -7,7 +7,6 @@ import unicodedata
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify
-from sqlalchemy import func
 
 from automation_engine.integracoes.google_drive import (
     conectar_google_drive,
@@ -30,12 +29,74 @@ def _inteiro_nao_negativo(valor, padrao=0):
         return padrao
 
 
+def _nome_empresa(empresa):
+    if not isinstance(empresa, dict):
+        return ""
+    for chave in ("nome", "empresa", "nome_empresa", "razao_social"):
+        valor = str(empresa.get(chave) or "").strip()
+        if valor:
+            return valor
+    return ""
+
+
+def _cnpj_empresa(empresa):
+    if not isinstance(empresa, dict):
+        return ""
+    for chave in ("cnpj", "cpf_cnpj", "documento"):
+        valor = str(empresa.get(chave) or "").strip()
+        if valor:
+            return re.sub(r"\D", "", valor)
+    return ""
+
+
+def _limpar_nome_empresa(nome):
+    texto = unicodedata.normalize("NFKD", str(nome or ""))
+    texto = "".join(letra for letra in texto if not unicodedata.combining(letra))
+    texto = texto.replace("/", " ")
+    texto = re.sub(r"[-–—_]+", " ", texto)
+    texto = re.sub(r"\s+", " ", texto).strip(" -")
+    return texto.strip()
+
+
+def _extrair_cnpj_da_empresa(empresa):
+    if not isinstance(empresa, dict):
+        return empresa
+
+    empresa = dict(empresa)
+    nome = _nome_empresa(empresa)
+    cnpj = _cnpj_empresa(empresa)
+    if not cnpj and nome:
+        match = re.search(r"(\d{14}|\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})", nome)
+        if match:
+            cnpj = re.sub(r"\D", "", match.group(1))
+            nome_sem_cnpj = nome[: match.start()] + nome[match.end() :]
+            nome = _limpar_nome_empresa(nome_sem_cnpj)
+            empresa["nome"] = nome
+            empresa["empresa"] = nome
+            empresa["cnpj"] = cnpj
+
+    if "nome" not in empresa and nome:
+        empresa["nome"] = nome
+    if "empresa" not in empresa and nome:
+        empresa["empresa"] = nome
+    if cnpj and not empresa.get("cnpj"):
+        empresa["cnpj"] = cnpj
+    if not empresa.get("cnpj") and nome:
+        empresa["nome"] = _limpar_nome_empresa(nome)
+    if empresa.get("cnpj") and not empresa.get("nome"):
+        empresa["nome"] = _limpar_nome_empresa(empresa.get("empresa") or "")
+
+    return empresa
+
+
 def _chave_empresa(empresa):
-    cnpj = re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
+    empresa = _extrair_cnpj_da_empresa(empresa)
+    cnpj = _cnpj_empresa(empresa)
     if cnpj:
         return f"cnpj:{cnpj}"
 
-    nome = unicodedata.normalize("NFKD", str(empresa.get("nome") or ""))
+    nome = _nome_empresa(empresa)
+    nome = unicodedata.normalize("NFKD", nome)
     nome = "".join(letra for letra in nome if not unicodedata.combining(letra))
     nome = re.sub(r"[^a-z0-9]+", " ", nome.casefold()).strip()
     return f"nome:{nome}" if nome else None
@@ -46,6 +107,7 @@ def _deduplicar_empresas(empresas):
     for empresa in empresas:
         if not isinstance(empresa, dict):
             continue
+        empresa = _extrair_cnpj_da_empresa(empresa)
         chave = _chave_empresa(empresa)
         if chave:
             unicas[chave] = empresa
@@ -58,22 +120,100 @@ def _chave_nome(empresa):
     return re.sub(r"[^a-z0-9]+", " ", nome.casefold()).strip()
 
 
+def _mesclar_empresa_base(empresa_base, empresa_complemento):
+    empresa = dict(empresa_base or {})
+    complemento = dict(empresa_complemento or {})
+
+    cnpj_base = re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
+    cnpj_comp = re.sub(r"\D", "", str(complemento.get("cnpj") or ""))
+    if cnpj_comp and not cnpj_base:
+        empresa["cnpj"] = cnpj_comp
+    elif cnpj_base and not cnpj_comp:
+        complemento["cnpj"] = cnpj_base
+
+    nome_base = str(empresa.get("nome") or "").strip()
+    nome_comp = str(complemento.get("nome") or "").strip()
+    if not nome_base and nome_comp:
+        empresa["nome"] = nome_comp
+    elif nome_base and not nome_comp:
+        complemento["nome"] = nome_base
+
+    if nome_base and nome_comp and nome_base.lower() != nome_comp.lower():
+        empresa["nome"] = nome_base or nome_comp
+        if not empresa.get("cnpj") and complemento.get("cnpj"):
+            empresa["cnpj"] = complemento["cnpj"]
+
+    empresa = _extrair_cnpj_da_empresa(empresa)
+    if not empresa.get("nome"):
+        empresa["nome"] = nome_base or nome_comp or "Empresa não informada"
+    return empresa
+
+
 def _sucessos_por_empresas_drive(empresas_drive, falhas, sucessos_explicitos):
-    """No Drive, toda empresa sem falha Ã© considerada um sucesso."""
-    nomes_com_falha = {_chave_nome(empresa) for empresa in falhas}
+    """No Drive, toda empresa sem falha é considerada um sucesso."""
+    falhas_normalizadas = [_extrair_cnpj_da_empresa(dict(empresa)) for empresa in falhas]
+    nomes_com_falha = {_chave_nome(empresa) for empresa in falhas_normalizadas}
     nomes_com_falha.discard("")
-    sucessos_por_nome = {
-        _chave_nome(empresa): empresa
-        for empresa in sucessos_explicitos
-        if _chave_nome(empresa) and _chave_nome(empresa) not in nomes_com_falha
+    cnpjs_com_falha = {
+        re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
+        for empresa in falhas_normalizadas
+        if re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
     }
-    for empresa in empresas_drive:
-        chave = _chave_nome(empresa)
-        if chave and chave not in nomes_com_falha:
-            sucessos_por_nome.setdefault(chave, empresa)
+
+    sucessos_por_chave = {}
+    for empresa in sucessos_explicitos:
+        empresa = _extrair_cnpj_da_empresa(dict(empresa))
+        chave = _chave_empresa(empresa)
+        if not chave:
+            continue
+        if empresa.get("cnpj") and empresa["cnpj"] in cnpjs_com_falha:
+            continue
+        nome_chave = _chave_nome(empresa)
+        if nome_chave and nome_chave in nomes_com_falha:
+            continue
+        sucessos_por_chave[chave] = empresa
+
+    for empresa_drive in empresas_drive:
+        empresa_drive = _extrair_cnpj_da_empresa(dict(empresa_drive))
+        chave_drive = _chave_empresa(empresa_drive)
+        if not chave_drive:
+            continue
+        if empresa_drive.get("cnpj") and empresa_drive["cnpj"] in cnpjs_com_falha:
+            continue
+        nome_drive = _chave_nome(empresa_drive)
+        if nome_drive and nome_drive in nomes_com_falha:
+            continue
+
+        empresa_existente = sucessos_por_chave.get(chave_drive)
+        if empresa_existente is not None:
+            sucessos_por_chave[chave_drive] = _mesclar_empresa_base(
+                empresa_existente,
+                empresa_drive,
+            )
+            continue
+
+        chave_compat = None
+        for chave, empresa in sucessos_por_chave.items():
+            cnpj = re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
+            if cnpj and cnpj == empresa_drive.get("cnpj"):
+                chave_compat = chave
+                break
+            if _chave_nome(empresa) == nome_drive:
+                chave_compat = chave
+                break
+
+        if chave_compat is not None:
+            sucessos_por_chave[chave_compat] = _mesclar_empresa_base(
+                sucessos_por_chave[chave_compat],
+                empresa_drive,
+            )
+            continue
+
+        sucessos_por_chave.setdefault(chave_drive, empresa_drive)
+
     return sorted(
-        sucessos_por_nome.values(),
-        key=lambda empresa: _chave_nome(empresa),
+        sucessos_por_chave.values(),
+        key=lambda empresa: (_chave_nome(empresa), str(empresa.get("cnpj") or "")),
     )
 
 
@@ -95,10 +235,7 @@ def _normalizar_relatorio(dados):
 
     dados["empresas_com_falha"] = _deduplicar_empresas(falhas)
     dados["empresas_com_sucesso"] = _deduplicar_empresas(sucessos)
-    resumo["sucessos"] = _inteiro_nao_negativo(
-        resumo.get("certas", resumo.get("sucessos")),
-        len(dados["empresas_com_sucesso"]),
-    )
+    resumo["sucessos"] = len(dados["empresas_com_sucesso"])
     return dados
 
 
@@ -215,21 +352,15 @@ def _montar_relatorio_acumulado():
     if ultimo is None:
         raise FileNotFoundError("Nenhum relatório foi processado.")
 
-    maior_total_sucessos = db.session.query(
-        func.max(RelatorioDriveProcessado.total_sucessos)
-    ).scalar() or 0
-    maior_total_ignorados = db.session.query(
-        func.max(RelatorioDriveProcessado.total_ignorados)
-    ).scalar() or 0
-    total_sucessos = max(maior_total_sucessos, len(sucessos))
+    total_sucessos = len(sucessos)
 
     return {
         "titulo": ultimo.titulo or "Resumo acumulado da automação SIEG",
         "executado_em": ultimo.executado_em or ultimo.arquivo_modificado_em,
         "resumo": {
-            "certas": total_sucessos,
+            "certas": 0,
             "sucessos": total_sucessos,
-            "ignorados": maior_total_ignorados,
+            "ignorados": _inteiro_nao_negativo(ultimo.total_ignorados),
             "falhas": len(falhas),
         },
         "empresas_com_falha": [empresa.to_dict() for empresa in falhas],
@@ -260,12 +391,15 @@ def sincronizar_relatorios_drive():
         raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
 
     with _lock_acumulacao:
-        for arquivo in arquivos:
-            chave = _chave_relatorio(arquivo)
-            if RelatorioDriveProcessado.query.filter_by(chave=chave).first():
-                continue
-            dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
-            _acumular_relatorio(dados, arquivo)
+        arquivo = max(
+            arquivos,
+            key=lambda item: str(item.get("modifiedTime") or item.get("name") or ""),
+        )
+        dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
+        db.session.query(EmpresaRelatorio).delete()
+        db.session.query(RelatorioDriveProcessado).delete()
+        db.session.commit()
+        _acumular_relatorio(dados, arquivo)
         relatorio = _montar_relatorio_acumulado()
         if os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip():
             empresas_drive = listar_empresas_drive(drive)
@@ -275,8 +409,8 @@ def sincronizar_relatorios_drive():
                 relatorio["empresas_com_sucesso"],
             )
             total_sucessos = len(relatorio["empresas_com_sucesso"])
-            relatorio["resumo"]["certas"] = total_sucessos
             relatorio["resumo"]["sucessos"] = total_sucessos
+            relatorio["resumo"]["certas"] = total_sucessos
         return relatorio
 
 

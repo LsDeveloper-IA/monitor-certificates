@@ -187,3 +187,10 @@ def executar_automacao():
         ), 202
     except RuntimeError as erro:
         return jsonify({"erro": str(erro)}), 409
+
+
+@automacao_bp.route("/automacao/parar", methods=["POST"])
+def parar_automacao():
+    if not executor_automacao.parar():
+        return jsonify({"erro": "Nenhuma automacao SIEG em execucao"}), 409
+    return jsonify({"mensagem": "Automacao SIEG interrompida"}), 200

@@ -1,6 +1,7 @@
 from pathlib import Path
 import os
 import json
+import re
 
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
@@ -14,10 +15,27 @@ SCOPES = [
 ESCOPO_DRIVE_COMPLETO = "https://www.googleapis.com/auth/drive"
 
 def conectar_google_drive(pasta_projeto):
-    pasta_projeto = Path(pasta_projeto)
-    arquivo_credentials = pasta_projeto / "credentials.json"
-    arquivo_token = pasta_projeto / "token.json"
+    pasta_projeto = Path(pasta_projeto).resolve()
+    pasta_configurada = os.getenv("GOOGLE_DRIVE_CREDENCIAIS_DIR", "").strip()
+    candidatas = []
+    if pasta_configurada:
+        configurada = Path(pasta_configurada).expanduser()
+        if not configurada.is_absolute():
+            configurada = pasta_projeto / configurada
+        candidatas.append(configurada.resolve())
+    candidatas.extend([pasta_projeto, *pasta_projeto.parents])
+    pasta_credenciais = next(
+        (pasta for pasta in candidatas if (pasta / "credentials.json").exists()),
+        pasta_projeto,
+    )
+    arquivo_credentials = pasta_credenciais / "credentials.json"
+    arquivo_token = pasta_credenciais / "token.json"
     credenciais = None
+
+    if not arquivo_credentials.exists() and not arquivo_token.exists():
+        raise FileNotFoundError(
+            "credentials.json e token.json nÃ£o foram encontrados no projeto."
+        )
 
     if arquivo_token.exists():
         # Não substitui os escopos salvos no token. Um token legado pode ter o
@@ -52,6 +70,38 @@ def conectar_google_drive(pasta_projeto):
         )
 
     return build("drive", "v3", credentials=credenciais)
+
+
+def baixar_certificados_drive(drive, pasta_id, destino):
+    """Baixa PFX/P12 da Ã¡rvore do Drive preservando as pastas das empresas."""
+    destino = Path(destino)
+    quantidade = 0
+
+    def baixar_pasta(id_atual, pasta_local):
+        nonlocal quantidade
+        id_seguro = str(id_atual).replace("'", "\\'")
+        itens = listar_arquivos(
+            drive,
+            f"'{id_seguro}' in parents and trashed = false",
+        )
+        for item in itens:
+            nome = str(item.get("name") or "").strip()
+            if not nome:
+                continue
+            if item.get("mimeType") == "application/vnd.google-apps.folder":
+                baixar_pasta(item["id"], pasta_local / nome)
+                continue
+            if Path(nome).suffix.casefold() not in {".pfx", ".p12"}:
+                continue
+            pasta_local.mkdir(parents=True, exist_ok=True)
+            conteudo = drive.files().get_media(
+                fileId=item["id"], supportsAllDrives=True
+            ).execute()
+            (pasta_local / nome).write_bytes(conteudo)
+            quantidade += 1
+
+    baixar_pasta(pasta_id, destino)
+    return quantidade
 
 
 def listar_arquivos(drive, consulta):
@@ -143,6 +193,21 @@ def listar_empresas_drive(drive):
             "GOOGLE_DRIVE_PASTA_E_CNPJ_ID nÃ£o foi configurado no arquivo .env."
         )
 
+    def extrair_cnpj_e_nome(nome):
+        texto = str(nome or "").strip()
+        if not texto:
+            return {"cnpj": "", "nome": ""}
+
+        match = re.search(r"(\d{14}|\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})", texto)
+        if not match:
+            return {"cnpj": "", "nome": texto}
+
+        cnpj = re.sub(r"\D", "", match.group(1))
+        nome_limpo = texto[: match.start()] + texto[match.end() :]
+        nome_limpo = re.sub(r"[-_–—/\\]+", " ", nome_limpo)
+        nome_limpo = re.sub(r"\s+", " ", nome_limpo).strip(" -")
+        return {"cnpj": cnpj, "nome": nome_limpo or texto}
+
     pasta_id_seguro = pasta_e_cnpj_id.replace("'", "\\'")
     pastas = listar_arquivos(
         drive,
@@ -152,11 +217,16 @@ def listar_empresas_drive(drive):
             "trashed = false"
         ),
     )
-    return [
-        {"cnpj": "", "nome": str(pasta.get("name") or "").strip()}
-        for pasta in pastas
-        if str(pasta.get("name") or "").strip()
-    ]
+    empresas = []
+    for pasta in pastas:
+        nome = str(pasta.get("name") or "").strip()
+        if not nome:
+            continue
+        empresa = extrair_cnpj_e_nome(nome)
+        if not empresa["nome"]:
+            empresa["nome"] = nome
+        empresas.append(empresa)
+    return empresas
 
 
 def ler_senha_google_docs(drive, documento_id):

@@ -29,6 +29,7 @@ class ExecutorAutomacao:
         self._fim = None
         self._codigo_saida = None
         self._erro = None
+        self._interrompida = False
         self._execucao_id = None
         self._atualizar_excel = False
         self._notificacoes_teste = False
@@ -56,7 +57,13 @@ class ExecutorAutomacao:
 
     @property
     def pasta_motor(self):
-        return Path(__file__).resolve().parents[2] / "automation_engine"
+        raiz = Path(__file__).resolve().parents[3]
+        pasta_sieg = raiz / "automacao-sieg"
+        if (pasta_sieg / "main.py").exists():
+            return pasta_sieg
+
+        raiz_monitor = Path(__file__).resolve().parents[2]
+        return raiz_monitor / "automation_engine"
 
     def _carregar_historico(self):
         try:
@@ -83,6 +90,8 @@ class ExecutorAutomacao:
         )
         if executando:
             estado = "executando"
+        elif self._interrompida:
+            estado = "interrompida"
         elif self._codigo_saida == 0:
             estado = "concluida"
         elif self._codigo_saida is not None:
@@ -154,6 +163,7 @@ class ExecutorAutomacao:
             self._fim = None
             self._codigo_saida = None
             self._erro = None
+            self._interrompida = False
             self._execucao_id = uuid.uuid4().hex
             pasta_logs = self._arquivo_historico.parent / "execucoes"
             pasta_logs.mkdir(parents=True, exist_ok=True)
@@ -179,6 +189,22 @@ class ExecutorAutomacao:
             self._registrar_historico()
             raise
 
+    def parar(self):
+        with self._lock:
+            processo = self._processo
+            if not self._executando or processo is None:
+                return False
+            self._interrompida = True
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(processo.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                processo.terminate()
+        return True
+
     def _executar_processo(self, atualizar_excel, notificacoes_teste):
         ambiente = os.environ.copy()
         ambiente.update(
@@ -195,9 +221,15 @@ class ExecutorAutomacao:
                 ),
                 "MODO_WHATSCONTABIL": "teste",
                 "PYTHONUNBUFFERED": "1",
+                "PYTHONUTF8": "1",
+                "PYTHONIOENCODING": "utf-8",
             }
         )
         try:
+            flags = 0
+            if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
             processo = subprocess.Popen(
                 [sys.executable, "main.py"],
                 cwd=self.pasta_motor,
@@ -207,7 +239,8 @@ class ExecutorAutomacao:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                creationflags=flags,
+                start_new_session=(os.name != "nt"),
             )
             with self._lock:
                 self._processo = processo
@@ -217,7 +250,7 @@ class ExecutorAutomacao:
             codigo = processo.wait()
             with self._lock:
                 self._codigo_saida = codigo
-                if codigo != 0:
+                if codigo != 0 and not self._interrompida:
                     self._erro = f"Automacao encerrada com codigo {codigo}"
         except Exception as erro:
             with self._lock:

@@ -4,6 +4,7 @@ import csv
 import os
 import shutil
 import sys
+import tempfile
 import warnings
 from datetime import datetime, timezone
 from time import perf_counter
@@ -37,6 +38,7 @@ from banco.consultas import (
     preencher_dados_clientes,
 )
 from integracoes.google_drive import (
+    baixar_certificados_drive,
     buscar_documentos_de_senha,
     conectar_google_drive,
     ler_senha_google_docs,
@@ -48,6 +50,7 @@ from utils.terminal import escrever, progresso, tabela, titulo
 
 PASTA_APLICACAO = obter_pasta_aplicacao()
 pasta_planilhas_locais = PASTA_APLICACAO / "planilhas"
+load_dotenv(PASTA_APLICACAO.parents[1] / ".env")
 load_dotenv(PASTA_APLICACAO / ".env")
 pasta_e_cnpj = Path(os.getenv("PASTA_CERTIFICADOS", "certificados"))
 arquivo_excel = Path(os.getenv("ARQUIVO_EXCEL", "relatorio_certificados.xlsx"))
@@ -1349,6 +1352,32 @@ except Exception as erro:
         "O processamento dos arquivos locais continuará."
     )
     print(f"Detalhe técnico: {erro}")
+
+
+pasta_drive_temporaria = None
+if not pasta_e_cnpj.exists() and drive is not None:
+    pasta_drive_id = os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip()
+    if pasta_drive_id:
+        try:
+            pasta_drive_temporaria = tempfile.TemporaryDirectory(
+                prefix="certificados-drive-"
+            )
+            pasta_e_cnpj = Path(pasta_drive_temporaria.name)
+            quantidade_baixada = baixar_certificados_drive(
+                drive,
+                pasta_drive_id,
+                pasta_e_cnpj,
+            )
+            print(
+                "Pasta local indisponÃ­vel; certificados baixados "
+                f"temporariamente do Drive: {quantidade_baixada}"
+            )
+        except Exception as erro:
+            if pasta_drive_temporaria is not None:
+                pasta_drive_temporaria.cleanup()
+                pasta_drive_temporaria = None
+            print("NÃ£o foi possÃ­vel baixar os certificados pelo Google Drive.")
+            print(f"Detalhe tÃ©cnico: {erro}")
 
 
 inicio_certificados = perf_counter()
