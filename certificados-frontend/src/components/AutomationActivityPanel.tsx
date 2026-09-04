@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { Activity, CheckCircle, Clock, Mail, MessageCircle, RefreshCw, XCircle } from 'lucide-react';
 
 const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
+const EVENTO_AUTOMACAO_ALTERADA = 'certificados-monitor:automacao-alterada';
 
 interface ResumoEnvios {
   email_enviados: number;
@@ -27,6 +28,7 @@ interface ExecucaoAutomacao {
   notificacoes_teste: boolean;
   resumo_envios?: ResumoEnvios;
   logs?: string[];
+  automacoes?: Record<string, { nome: string; logs: string[] }>;
 }
 
 const resumoVazio: ResumoEnvios = {
@@ -89,6 +91,9 @@ export default function AutomationActivityPanel() {
 
   useEffect(() => {
     carregarAtividade(true);
+    const atualizar = () => carregarAtividade(false);
+    window.addEventListener(EVENTO_AUTOMACAO_ALTERADA, atualizar);
+    return () => window.removeEventListener(EVENTO_AUTOMACAO_ALTERADA, atualizar);
   }, [carregarAtividade]);
 
   useEffect(() => {
@@ -197,12 +202,19 @@ export default function AutomationActivityPanel() {
         </section>
       </div>
 
-      {(status.logs?.length || 0) > 0 && (
+      {status.automacoes && (
         <section>
-          <h4 className="mb-2 font-semibold text-gray-900">Progresso recente</h4>
-          <pre className="max-h-44 overflow-y-auto whitespace-pre-wrap rounded-xl bg-gray-900 p-4 text-xs text-gray-100">
-            {status.logs!.slice(-12).join('\n')}
-          </pre>
+          <h4 className="mb-2 font-semibold text-gray-900">Progresso das automações</h4>
+          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+            {Object.entries(status.automacoes).map(([id, automacao]) => (
+              <div key={id} className="min-w-0 rounded-xl border border-gray-200 p-3">
+                <p className="mb-2 text-sm font-semibold text-gray-800">{automacao.nome}</p>
+                <pre className="h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
+                  {automacao.logs.length ? automacao.logs.slice(-30).join('\n') : 'Aguardando início...'}
+                </pre>
+              </div>
+            ))}
+          </div>
         </section>
       )}
 

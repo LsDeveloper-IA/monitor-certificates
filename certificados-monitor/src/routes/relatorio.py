@@ -22,6 +22,16 @@ relatorio_bp = Blueprint("relatorio", __name__)
 _lock_acumulacao = threading.Lock()
 
 
+def _carregar_empresas_sem_certificado():
+    arquivo = Path(__file__).resolve().parents[3] / "Auto_NC" / "empresas_sem_certificado.json"
+    try:
+        conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
+        empresas = conteudo.get("empresas", [])
+        return _deduplicar_empresas(empresas) if isinstance(empresas, list) else []
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        return []
+
+
 def _inteiro_nao_negativo(valor, padrao=0):
     try:
         return max(0, int(valor))
@@ -417,7 +427,11 @@ def sincronizar_relatorios_drive():
 @relatorio_bp.route("/relatorios/certificados-vencidos", methods=["GET"])
 def relatorio_certificados_vencidos():
     try:
-        return jsonify(sincronizar_relatorios_drive()), 200
+        relatorio = sincronizar_relatorios_drive()
+        sem_certificado = _carregar_empresas_sem_certificado()
+        relatorio["empresas_sem_certificado"] = sem_certificado
+        relatorio["resumo"]["sem_certificado"] = len(sem_certificado)
+        return jsonify(relatorio), 200
     except FileNotFoundError as erro:
         return jsonify({"erro": str(erro)}), 404
     except (ValueError, json.JSONDecodeError) as erro:

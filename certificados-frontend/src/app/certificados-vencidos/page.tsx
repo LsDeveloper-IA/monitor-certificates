@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, Building2, CheckCircle2, Clock3,
   FileJson, Moon, Play, RefreshCw, Search, Square, Sun, XCircle,
@@ -11,11 +11,12 @@ interface EmpresaResultado { cnpj: string; nome: string; motivo?: string }
 interface Relatorio {
   titulo?: string;
   executado_em?: string;
-  resumo: { certas?: number; sucessos?: number; ignorados?: number; falhas?: number };
+  resumo: { certas?: number; sucessos?: number; ignorados?: number; falhas?: number; sem_certificado?: number };
   empresas_com_falha: EmpresaResultado[];
   empresas_com_sucesso?: EmpresaResultado[];
   empresas_certas?: EmpresaResultado[];
   empresas_corretas?: EmpresaResultado[];
+  empresas_sem_certificado?: EmpresaResultado[];
   arquivo_drive?: { nome?: string; modificado_em?: string };
   historico?: { acumulado?: boolean; arquivos_processados?: number; empresas_acompanhadas?: number };
 }
@@ -32,6 +33,7 @@ interface StatusAutomacao {
   estado: string;
   logs: string[];
   erro?: string | null;
+  automacoes?: Record<string, { nome: string; logs: string[] }>;
 }
 
 export default function CertificadosVencidos() {
@@ -40,10 +42,11 @@ export default function CertificadosVencidos() {
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
   const [modoEscuro, setModoEscuro] = useState(false);
-  const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos'>('falhas');
+  const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos' | 'sem_certificado'>('sem_certificado');
   const [executandoAutomacao, setExecutandoAutomacao] = useState(false);
   const [mensagemAutomacao, setMensagemAutomacao] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
   const [statusAutomacao, setStatusAutomacao] = useState<StatusAutomacao>({ executando: false, estado: 'aguardando', logs: [] });
+  const estavaExecutando = useRef(false);
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('');
@@ -74,12 +77,22 @@ export default function CertificadosVencidos() {
 
   const carregarStatusAutomacao = useCallback(async () => {
     try {
-      const resposta = await fetch('/api/automacao/status', { cache: 'no-store' });
-      if (resposta.ok) setStatusAutomacao(await resposta.json());
+      const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO)?.trim() || '';
+      const resposta = await fetch('/api/automacao/status', {
+        headers: chaveAdmin ? { 'X-Admin-Key': chaveAdmin } : {},
+        cache: 'no-store',
+      });
+      if (resposta.ok) {
+        const novoStatus: StatusAutomacao = await resposta.json();
+        const terminouAgora = estavaExecutando.current && !novoStatus.executando;
+        estavaExecutando.current = novoStatus.executando;
+        setStatusAutomacao(novoStatus);
+        if (terminouAgora) await carregar();
+      }
     } catch {
       // O status não deve impedir a leitura do relatório.
     }
-  }, []);
+  }, [carregar]);
 
   useEffect(() => {
     carregarStatusAutomacao();
@@ -112,19 +125,19 @@ export default function CertificadosVencidos() {
 
       const conteudo = await resposta.json().catch(() => ({}));
       if (!resposta.ok) {
-        throw new Error(conteudo?.erro || 'Falha ao iniciar a automação SIEG.');
+        throw new Error(conteudo?.erro || 'Falha ao iniciar as automações.');
       }
 
       setMensagemAutomacao({
         tipo: 'success',
-        texto: 'Automação SIEG iniciada em segundo plano.',
+        texto: 'As duas automações foram iniciadas em segundo plano.',
       });
       window.dispatchEvent(new Event('certificados-monitor:automacao-alterada'));
       setTimeout(() => carregar(), 1500);
     } catch (erro) {
       setMensagemAutomacao({
         tipo: 'error',
-        texto: erro instanceof Error ? erro.message : 'Falha ao iniciar a automação SIEG.',
+        texto: erro instanceof Error ? erro.message : 'Falha ao iniciar as automações.',
       });
     } finally {
       setExecutandoAutomacao(false);
@@ -133,13 +146,17 @@ export default function CertificadosVencidos() {
 
   const pararAutomacaoSieg = useCallback(async () => {
     try {
-      const resposta = await fetch('/api/automacao/parar', { method: 'POST' });
+      const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO)?.trim() || '';
+      const resposta = await fetch('/api/automacao/parar', {
+        method: 'POST',
+        headers: chaveAdmin ? { 'X-Admin-Key': chaveAdmin } : {},
+      });
       const conteudo = await resposta.json().catch(() => ({}));
-      if (!resposta.ok) throw new Error(conteudo?.erro || 'Não foi possível parar a automação SIEG.');
-      setMensagemAutomacao({ tipo: 'success', texto: 'Automação SIEG interrompida.' });
+      if (!resposta.ok) throw new Error(conteudo?.erro || 'Não foi possível parar as automações.');
+      setMensagemAutomacao({ tipo: 'success', texto: 'As duas automações foram interrompidas.' });
       await carregarStatusAutomacao();
     } catch (erro) {
-      setMensagemAutomacao({ tipo: 'error', texto: erro instanceof Error ? erro.message : 'Falha ao parar a automação SIEG.' });
+      setMensagemAutomacao({ tipo: 'error', texto: erro instanceof Error ? erro.message : 'Falha ao parar as automações.' });
     }
   }, [carregarStatusAutomacao]);
 
@@ -155,13 +172,18 @@ export default function CertificadosVencidos() {
   const sucessos = Number(resumo.sucessos ?? listaSucessos.length);
   const ignorados = Number(resumo.ignorados || 0);
   const falhas = Number(resumo.falhas ?? relatorio?.empresas_com_falha.length ?? 0);
-  const total = sucessos + ignorados + falhas;
+  const listaSemCertificado = relatorio?.empresas_sem_certificado || [];
+  const semCertificado = Number(resumo.sem_certificado ?? listaSemCertificado.length);
+  const total = sucessos + ignorados + falhas + semCertificado;
   const percentualFalhas = total ? Math.round((falhas / total) * 100) : 0;
   const percentualSucessos = total ? Math.round((sucessos / total) * 100) : 0;
   const percentualIgnorados = total ? Math.round((ignorados / total) * 100) : 0;
+  const percentualSemCertificado = total ? Math.round((semCertificado / total) * 100) : 0;
   const listaAtiva = resultadoAtivo === 'falhas'
     ? (relatorio?.empresas_com_falha || [])
-    : listaSucessos;
+    : resultadoAtivo === 'sem_certificado'
+      ? listaSemCertificado
+      : listaSucessos;
   const empresas = useMemo(() => listaAtiva.filter((item) => {
     const termo = busca.toLocaleLowerCase('pt-BR');
     return item.nome?.toLocaleLowerCase('pt-BR').includes(termo) || item.cnpj?.includes(busca) ||
@@ -173,6 +195,7 @@ export default function CertificadosVencidos() {
     { label: 'Sucessos', valor: sucessos, Icone: CheckCircle2, fundo: 'bg-green-100', texto: 'text-green-600' },
     { label: 'Ignorados', valor: ignorados, Icone: Clock3, fundo: 'bg-yellow-100', texto: 'text-yellow-600' },
     { label: 'Falhas', valor: falhas, Icone: XCircle, fundo: 'bg-red-100', texto: 'text-red-600' },
+    { label: 'Sem certificado', valor: semCertificado, Icone: AlertTriangle, fundo: 'bg-orange-100', texto: 'text-orange-600' },
   ];
 
   return <div className="min-h-screen bg-gray-50">
@@ -183,7 +206,7 @@ export default function CertificadosVencidos() {
             <ArrowLeft className="w-5 h-5" />
           </Link>
           <FileJson className="w-7 h-7 text-red-600 shrink-0" />
-          <h1 className="text-xl font-semibold text-gray-900 truncate">Certificados vencidos</h1>
+          <h1 className="text-xl font-semibold text-gray-900 truncate">Automação de certificados vencidos</h1>
         </div>
         <div className="flex items-center gap-2">
           <button
@@ -193,7 +216,7 @@ export default function CertificadosVencidos() {
             className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {executandoAutomacao ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
-            {executandoAutomacao ? 'Executando...' : 'Automação SIEG'}
+            {executandoAutomacao ? 'Iniciando...' : 'Iniciar automação'}
           </button>
           {statusAutomacao.executando && <button
             type="button"
@@ -227,13 +250,22 @@ export default function CertificadosVencidos() {
       {statusAutomacao.executando && <section className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-900">
         <div className="flex items-center gap-2">
           <RefreshCw className="w-4 h-4 animate-spin" />
-          <p className="font-medium">Automação SIEG em execução</p>
+          <p className="font-medium">Automações em execução</p>
         </div>
-        <p className="mt-2 text-sm">{statusAutomacao.logs.at(-1) || 'Iniciando automação...'}</p>
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+          {Object.entries(statusAutomacao.automacoes || {}).map(([id, automacao]) => (
+            <div key={id} className="min-w-0 rounded-lg border border-blue-200 bg-white p-3">
+              <p className="mb-2 text-sm font-semibold text-gray-800">{automacao.nome}</p>
+              <pre className="h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
+                {automacao.logs.length ? automacao.logs.slice(-30).join('\n') : 'Aguardando início...'}
+              </pre>
+            </div>
+          ))}
+        </div>
       </section>}
 
       <div className="mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">{relatorio?.titulo || 'Resumo da automação SIEG'}</h2>
+        <h2 className="text-lg font-semibold text-gray-900">{relatorio?.titulo || 'Resumo da automação de certificados'}</h2>
         <p className="text-sm text-gray-500 mt-1">
           {relatorio?.executado_em ? `Executado em ${new Date(relatorio.executado_em).toLocaleString('pt-BR')}` : 'Aguardando dados do Drive'}
           {relatorio?.arquivo_drive?.nome && ` • ${relatorio.arquivo_drive.nome}`}
@@ -243,7 +275,7 @@ export default function CertificadosVencidos() {
         </p>}
       </div>
 
-      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 mb-6">
+      <section className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-5 mb-6">
         {cards.map(({ label, valor, Icone, fundo, texto }) => <div key={label} className="bg-white rounded-lg shadow p-5 flex items-center">
           <div className={`p-2 rounded-lg ${fundo}`}><Icone className={`w-6 h-6 ${texto}`} /></div>
           <div className="ml-4"><p className="text-sm text-gray-600">{label}</p><p className="text-2xl font-semibold text-gray-900">{valor}</p></div>
@@ -260,7 +292,8 @@ export default function CertificadosVencidos() {
                 background: `conic-gradient(
                   #16a34a 0 ${percentualSucessos}%,
                   #eab308 ${percentualSucessos}% ${percentualSucessos + percentualIgnorados}%,
-                  #dc2626 ${percentualSucessos + percentualIgnorados}% 100%
+                  #dc2626 ${percentualSucessos + percentualIgnorados}% ${percentualSucessos + percentualIgnorados + percentualFalhas}%,
+                  #f97316 ${percentualSucessos + percentualIgnorados + percentualFalhas}% 100%
                 )`,
               }}
             >
@@ -270,15 +303,16 @@ export default function CertificadosVencidos() {
               </div>
             </div>
           </div>
-          <div className="mt-5 grid grid-cols-3 gap-2 text-center text-xs">
+          <div className="mt-5 grid grid-cols-2 gap-2 text-center text-xs">
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-green-600" /><span className="text-gray-600">{percentualSucessos}% sucesso</span></div>
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">{percentualIgnorados}% ignorado</span></div>
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-red-600" /><span className="text-gray-600">{percentualFalhas}% falha</span></div>
+            <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-orange-500" /><span className="text-gray-600">{percentualSemCertificado}% sem certificado</span></div>
           </div>
         </div>
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <h3 className="font-medium text-gray-900 mb-5">Resultado da execução</h3>
-          {[['Sucessos', sucessos, 'bg-green-500'], ['Ignorados', ignorados, 'bg-yellow-500'], ['Falhas', falhas, 'bg-red-500']].map(([nome, valor, cor]) => {
+          {[['Sucessos', sucessos, 'bg-green-500'], ['Ignorados', ignorados, 'bg-yellow-500'], ['Falhas', falhas, 'bg-red-500'], ['Sem certificado', semCertificado, 'bg-orange-500']].map(([nome, valor, cor]) => {
             const numero = Number(valor); const largura = total ? (numero / total) * 100 : 0;
             return <div key={String(nome)} className="mb-5 last:mb-0"><div className="flex justify-between text-sm mb-2"><span className="text-gray-600">{nome}</span><b className="text-gray-900">{numero}</b></div><div className="h-3 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${cor} rounded-full`} style={{ width: `${largura}%` }} /></div></div>;
           })}
@@ -311,12 +345,22 @@ export default function CertificadosVencidos() {
             >
               Com sucesso ({sucessos})
             </button>
+            <button
+              onClick={() => { setResultadoAtivo('sem_certificado'); setBusca(''); }}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${resultadoAtivo === 'sem_certificado' ? 'bg-orange-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              role="tab"
+              aria-selected={resultadoAtivo === 'sem_certificado'}
+            >
+              Sem certificado ({semCertificado})
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto"><table className="w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CNPJ</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Resultado</th></tr></thead>
-          <tbody className="divide-y divide-gray-200">{empresas.map((item, indice) => <tr key={`${item.cnpj}-${indice}`} className="hover:bg-gray-50"><td className="px-6 py-4 text-sm font-medium text-gray-900">{item.nome || 'Não informada'}</td><td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatarCnpj(item.cnpj)}</td><td className={`px-6 py-4 text-sm ${resultadoAtivo === 'falhas' ? 'text-red-700' : 'text-green-700'}`}>
+          <tbody className="divide-y divide-gray-200">{empresas.map((item, indice) => <tr key={`${item.cnpj}-${indice}`} className="hover:bg-gray-50"><td className="px-6 py-4 text-sm font-medium text-gray-900">{item.nome || 'Não informada'}</td><td className="px-6 py-4 text-sm text-gray-600 whitespace-nowrap">{formatarCnpj(item.cnpj)}</td><td className={`px-6 py-4 text-sm ${resultadoAtivo === 'falhas' ? 'text-red-700' : resultadoAtivo === 'sem_certificado' ? 'text-orange-700' : 'text-green-700'}`}>
             {resultadoAtivo === 'falhas'
               ? <span className="inline-flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{item.motivo || 'Motivo não informado'}</span>
+              : resultadoAtivo === 'sem_certificado'
+                ? <span className="inline-flex gap-2 font-medium"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />Sem certificado cadastrado</span>
               : <span className="inline-flex gap-2 font-medium"><CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />Processada com sucesso</span>}
           </td></tr>)}</tbody>
         </table></div>
@@ -326,6 +370,7 @@ export default function CertificadosVencidos() {
           <p className="font-medium text-gray-900">Nenhuma empresa processada com sucesso foi registrada neste relatório.</p>
           <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">As empresas só aparecem aqui quando a automação SIEG conclui o processamento e grava a lista nominal.</p>
         </div>}
+        {!carregando && !empresas.length && !erro && resultadoAtivo === 'sem_certificado' && <p className="p-8 text-center text-gray-500">Nenhuma empresa sem certificado foi identificada pela Auto_NC.</p>}
       </section>
     </main>
   </div>;

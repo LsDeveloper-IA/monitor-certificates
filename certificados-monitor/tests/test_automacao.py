@@ -121,12 +121,18 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertIsNone(status["duracao_segundos"])
         self.assertEqual(status["resumo_envios"]["email_enviados"], 0)
 
-    def test_usa_a_automacao_sieg_quando_ela_existe(self):
+    def test_configura_os_dois_motores_de_automacao(self):
         pasta_repositorio = Path(__file__).resolve().parents[2]
-        pasta_sieg = pasta_repositorio / "automacao-sieg"
+        pasta_antiga = pasta_repositorio / "automacao-sieg"
+        pasta_auto_nc = pasta_repositorio / "Auto_NC"
 
-        self.assertTrue((pasta_sieg / "main.py").exists())
-        self.assertEqual(ExecutorAutomacao().pasta_motor, pasta_sieg)
+        self.assertTrue((pasta_auto_nc / "main.py").exists())
+        self.assertTrue((pasta_antiga / "main.py").exists())
+        self.assertEqual(ExecutorAutomacao().pasta_motor, pasta_antiga)
+        self.assertEqual(
+            set(ExecutorAutomacao().pastas_motores),
+            {"certificados_vencidos", "auto_nc"},
+        )
 
     def test_resumo_de_envios_e_extraido_dos_logs(self):
         executor = ExecutorAutomacao()
