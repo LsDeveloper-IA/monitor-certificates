@@ -426,11 +426,11 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
         self.assertEqual(criar_relatorio.call_count, 2)
         self.assertEqual(enviar_template_oficial.call_count, 3)
         chamadas = enviar_template_oficial.call_args_list
-        self.assertIsNone(chamadas[0].kwargs["arquivo"])
-        self.assertEqual(chamadas[1].kwargs["arquivo"], Path("responsavel.pdf"))
-        self.assertEqual(chamadas[2].kwargs["arquivo"], Path("equipe.pdf"))
+        self.assertEqual(chamadas[0].kwargs["arquivo"], Path("responsavel.pdf"))
+        self.assertEqual(chamadas[1].kwargs["arquivo"], Path("equipe.pdf"))
+        self.assertIsNone(chamadas[2].kwargs["arquivo"])
+        self.assertEqual(chamadas[0].args[4][1], "1")
         self.assertEqual(chamadas[1].args[4][1], "1")
-        self.assertEqual(chamadas[2].args[4][1], "1")
         self.assertEqual(resumo["enviados"], 3)
 
     @patch.object(alertas_whatscontabil, "sleep")
@@ -465,6 +465,7 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
                 "WHATSCONTABIL_TEMPLATE_ABERTURA_RELATORIO_TESTE": (
                     "aviso_relatorio_certificados"
                 ),
+                "WHATSCONTABIL_PERMITIR_FALLBACK_MIDIA_TESTE": "sim",
                 "WHATSCONTABIL_NOME_RESPONSAVEL_TESTE": "Responsavel interno",
             },
             clear=False,
@@ -478,7 +479,7 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
 
         self.assertEqual(criar_relatorio.call_count, 1)
         self.assertEqual(enviar_template_oficial.call_count, 2)
-        abertura = enviar_template_oficial.call_args_list[1]
+        abertura = enviar_template_oficial.call_args_list[0]
         self.assertEqual(abertura.args[2], "aviso_relatorio_certificados")
         self.assertEqual(
             abertura.args[4],
@@ -525,7 +526,7 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
         self.assertEqual(enviar_template_oficial.call_count, 2)
         self.assertEqual(
             [chamada.args[2] for chamada in enviar_template_oficial.call_args_list],
-            ["aviso_vencimento_certificado", "resumo_pendencias_certificados"],
+            ["resumo_pendencias_certificados", "aviso_vencimento_certificado"],
         )
         self.assertEqual(resumo["enviados"], 2)
 
@@ -652,6 +653,173 @@ class AlertasWhatsContabilTestCase(unittest.TestCase):
         enviar_template_oficial.assert_not_called()
         enviar_texto.assert_not_called()
         self.assertEqual(resumo["falhas"], 1)
+
+    @patch.object(alertas_whatscontabil, "sleep")
+    @patch.object(
+        alertas_whatscontabil,
+        "obter_link_relatorio",
+        side_effect=[
+            "https://drive.google.com/responsavel",
+            "https://drive.google.com/equipe",
+        ],
+    )
+    @patch.object(
+        alertas_whatscontabil,
+        "enviar_relatorio_drive",
+        side_effect=[{"id": "arquivo-1"}, {"id": "arquivo-2"}],
+    )
+    @patch.object(
+        alertas_whatscontabil,
+        "criar_relatorio_pdf",
+        side_effect=[Path("responsavel.pdf"), Path("equipe.pdf")],
+    )
+    @patch.object(alertas_whatscontabil, "enviar_template", return_value={
+        "resposta": {"messageIds": ["mensagem-1"]}
+    })
+    def test_relatorios_internos_usam_um_template_generico_com_link(
+        self,
+        enviar_template_oficial,
+        criar_relatorio,
+        enviar_drive,
+        obter_link,
+        _sleep,
+    ):
+        alerta_sem_contato = {
+            **self.alerta,
+            "cnpj": "98765432000110",
+            "empresa": "EMPRESA SEM CONTATO",
+            "email": None,
+            "dados_cliente": {},
+        }
+        with patch.dict(
+            os.environ,
+            {
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_NUMERO_TESTE": "5585996490370",
+                "WHATSCONTABIL_TEMPLATE_TESTE": "aviso_vencimento_certificado",
+                "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE": (
+                    "relatorio_certificados_link"
+                ),
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE": "",
+                "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE": "",
+            },
+            clear=False,
+        ):
+            resumo = alertas_whatscontabil.enviar_alertas_internos(
+                [self.alerta, alerta_sem_contato],
+                PASTA_MOTOR,
+                "5585999999999",
+                2,
+            )
+
+        self.assertEqual(criar_relatorio.call_count, 2)
+        self.assertEqual(enviar_drive.call_count, 2)
+        self.assertEqual(obter_link.call_count, 2)
+        chamadas_link = [
+            chamada
+            for chamada in enviar_template_oficial.call_args_list
+            if chamada.args[2] == "relatorio_certificados_link"
+        ]
+        self.assertEqual(len(chamadas_link), 2)
+        self.assertEqual(
+            chamadas_link[0].args[4][2],
+            "https://drive.google.com/responsavel",
+        )
+        self.assertEqual(
+            chamadas_link[1].args[4][2],
+            "https://drive.google.com/equipe",
+        )
+        self.assertIsNone(chamadas_link[0].kwargs["arquivo"])
+        self.assertIsNone(chamadas_link[1].kwargs["arquivo"])
+        self.assertEqual(resumo["enviados"], 3)
+
+    @patch.object(alertas_whatscontabil, "sleep")
+    @patch.object(alertas_whatscontabil, "obter_link_relatorio")
+    @patch.object(alertas_whatscontabil, "enviar_relatorio_drive")
+    @patch.object(alertas_whatscontabil, "criar_relatorio_pdf")
+    @patch.object(alertas_whatscontabil, "enviar_template", return_value={
+        "resposta": {"messageIds": ["mensagem-1"]}
+    })
+    def test_escopo_relatorios_nao_envia_clientes(
+        self,
+        enviar_template_oficial,
+        criar_relatorio,
+        enviar_drive,
+        obter_link,
+        _sleep,
+    ):
+        alerta_sem_contato = {
+            **self.alerta,
+            "cnpj": "98765432000110",
+            "empresa": "EMPRESA SEM CONTATO",
+            "email": None,
+            "dados_cliente": {},
+        }
+        criar_relatorio.side_effect = [Path("responsavel.pdf"), Path("equipe.pdf")]
+        enviar_drive.side_effect = [{"id": "arquivo-1"}, {"id": "arquivo-2"}]
+        obter_link.side_effect = ["https://drive/r1", "https://drive/r2"]
+        with patch.dict(
+            os.environ,
+            {
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_NUMERO_TESTE": "5585996490370",
+                "WHATSCONTABIL_TEMPLATE_TESTE": "aviso_vencimento_certificado",
+                "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE": "relatorio_link",
+                "WHATSCONTABIL_ESCOPO_ENVIO_TESTE": "relatorios",
+                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": "sim",
+            },
+            clear=False,
+        ):
+            resumo = alertas_whatscontabil.enviar_alertas_internos(
+                [self.alerta, alerta_sem_contato], PASTA_MOTOR, "0", 2
+            )
+
+        self.assertEqual(enviar_template_oficial.call_count, 2)
+        self.assertTrue(all(
+            chamada.args[2] == "relatorio_link"
+            for chamada in enviar_template_oficial.call_args_list
+        ))
+        self.assertEqual(resumo["enviados"], 2)
+
+    @patch.object(alertas_whatscontabil, "sleep")
+    @patch.object(alertas_whatscontabil, "enviar_template")
+    def test_lote_para_apos_tres_falhas_consecutivas(
+        self,
+        enviar_template_oficial,
+        _sleep,
+    ):
+        enviar_template_oficial.side_effect = alertas_whatscontabil.ErroWhatsContabil(
+            "(#131000) Something went wrong"
+        )
+        alertas = [
+            {
+                **self.alerta,
+                "cnpj": f"123456780001{numero:02d}",
+                "empresa": f"EMPRESA {numero}",
+            }
+            for numero in range(1, 6)
+        ]
+        with patch.dict(
+            os.environ,
+            {
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_NUMERO_TESTE": "5585996490370",
+                "WHATSCONTABIL_TEMPLATE_TESTE": "aviso_vencimento_certificado",
+                "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE": "",
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE": "",
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_TESTE": "",
+                "WHATSCONTABIL_ESCOPO_ENVIO_TESTE": "clientes",
+                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": "sim",
+            },
+            clear=False,
+        ):
+            resumo = alertas_whatscontabil.enviar_alertas_internos(
+                alertas, PASTA_MOTOR, "0", 2
+            )
+
+        self.assertEqual(enviar_template_oficial.call_count, 3)
+        self.assertEqual(resumo["falhas"], 3)
+        self.assertEqual(resumo["interrompidos"], 2)
 
 
 if __name__ == "__main__":

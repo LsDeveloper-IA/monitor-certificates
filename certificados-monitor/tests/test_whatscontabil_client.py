@@ -18,6 +18,20 @@ from integracoes.whatscontabil import (
 
 
 class WhatsContabilClientTestCase(unittest.TestCase):
+    def test_erro_http_exibe_detalhe_aninhado_da_api(self):
+        resposta = Mock(status_code=400)
+        resposta.json.return_value = {
+            "error": {"message": "Template temporariamente indisponivel"}
+        }
+
+        with self.assertRaises(ErroWhatsContabil) as contexto:
+            _interpretar_erro_http(resposta)
+
+        self.assertIn(
+            "Template temporariamente indisponivel",
+            str(contexto.exception),
+        )
+
     def test_erro_http_inclui_detalhe_seguro_da_api(self):
         resposta = Mock(status_code=400)
         resposta.json.return_value = {
@@ -67,8 +81,9 @@ class WhatsContabilClientTestCase(unittest.TestCase):
                 arquivo=caminho,
             )
 
-        arquivo_enviado = post.call_args.kwargs["files"]["files"]
-        self.assertEqual(Path(arquivo_enviado.name).name, "relatorio.xlsx")
+        nome, arquivo_enviado, tipo_mime = post.call_args.kwargs["files"]["files"]
+        self.assertEqual(nome, "relatorio.xlsx")
+        self.assertEqual(tipo_mime, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         self.assertTrue(arquivo_enviado.closed)
         self.assertEqual(resultado["status_http"], 200)
 
@@ -95,9 +110,10 @@ class WhatsContabilClientTestCase(unittest.TestCase):
                 arquivo=caminho,
             )
 
-        arquivo_enviado = post.call_args.kwargs["files"]["files"]
+        nome, arquivo_enviado, tipo_mime = post.call_args.kwargs["files"]["files"]
         dados_enviados = post.call_args.kwargs["data"]
-        self.assertEqual(Path(arquivo_enviado.name).name, "relatorio.pdf")
+        self.assertEqual(nome, "relatorio.pdf")
+        self.assertEqual(tipo_mime, "application/pdf")
         self.assertTrue(arquivo_enviado.closed)
         self.assertEqual(dados_enviados["to"], "5585999999999")
         self.assertEqual(dados_enviados["template"], "relatorio_teste")
@@ -130,8 +146,10 @@ class WhatsContabilClientTestCase(unittest.TestCase):
         self.assertEqual(campos["to"], (None, "5585999999999"))
         self.assertEqual(campos["message"], (None, "Relatorio de teste."))
         self.assertEqual(campos["whatsappId"], (None, "2"))
-        self.assertEqual(Path(campos["medias"].name).name, "relatorio.pdf")
-        self.assertTrue(campos["medias"].closed)
+        nome, arquivo_enviado, tipo_mime = campos["medias"]
+        self.assertEqual(nome, "relatorio.pdf")
+        self.assertEqual(tipo_mime, "application/pdf")
+        self.assertTrue(arquivo_enviado.closed)
         self.assertEqual(resultado["status_http"], 200)
 
 

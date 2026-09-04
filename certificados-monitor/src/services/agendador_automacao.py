@@ -198,6 +198,9 @@ class AgendadorAutomacao:
             monitorando = self._thread is not None and self._thread.is_alive()
 
         proxima_execucao = None
+        horarios_pendentes = []
+        horarios_atrasados = []
+        execucoes_hoje = []
         if configuracao["ativo"]:
             data_atual = agora.date().isoformat()
             tentados = (
@@ -215,14 +218,32 @@ class AgendadorAutomacao:
                     microsecond=0,
                 )
                 if horario in tentados:
+                    execucoes_hoje.append(horario)
                     alvo += timedelta(days=1)
+                else:
+                    horarios_pendentes.append(horario)
+                    if agora > alvo + timedelta(minutes=5):
+                        horarios_atrasados.append(horario)
                 alvos.append(alvo)
             proxima_execucao = min(alvos).isoformat()
+
+        if not configuracao["ativo"]:
+            situacao = "desativado"
+        elif not monitorando:
+            situacao = "monitor_parado"
+        elif horarios_atrasados:
+            situacao = "atrasado"
+        else:
+            situacao = "normal"
 
         return {
             **configuracao,
             "monitorando": monitorando,
             "proxima_execucao": proxima_execucao,
+            "execucoes_hoje": execucoes_hoje,
+            "horarios_pendentes": horarios_pendentes,
+            "horarios_atrasados": horarios_atrasados,
+            "situacao": situacao,
         }
 
 

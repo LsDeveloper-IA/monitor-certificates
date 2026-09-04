@@ -17,6 +17,7 @@ async function encaminhar(
   if (![
     'status',
     'historico',
+    'historico-mensagens',
     'executar',
     'agendador-status',
     'agendador-configurar',

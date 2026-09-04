@@ -9,6 +9,7 @@ from sqlalchemy import text
 from src.models.user import db
 from src.services.executor_automacao import executor_automacao
 from src.services.agendador_automacao import agendador_automacao
+from automation_engine.registro_alertas import listar_alertas_enviados
 
 
 automacao_bp = Blueprint("automacao", __name__)
@@ -38,6 +39,15 @@ def status_automacao():
 @automacao_bp.route("/automacao/historico", methods=["GET"])
 def historico_automacao():
     return jsonify({"execucoes": executor_automacao.historico()}), 200
+
+
+@automacao_bp.route("/automacao/historico-mensagens", methods=["GET"])
+def historico_mensagens_automacao():
+    try:
+        limite = request.args.get("limite", 100, type=int)
+        return jsonify({"mensagens": listar_alertas_enviados(limite)}), 200
+    except (OSError, ValueError):
+        return jsonify({"erro": "Nao foi possivel carregar o historico de mensagens"}), 500
 
 
 @automacao_bp.route("/automacao/agendador-status", methods=["GET"])
@@ -98,6 +108,31 @@ def saude_integracoes():
         ),
     })
 
+    pasta_relatorios_pdf = bool(
+        os.getenv("GOOGLE_DRIVE_PASTA_RELATORIOS_PDF_ID", "").strip()
+    )
+    token_relatorios = (
+        PASTA_BACKEND
+        / "automation_engine"
+        / "token_drive_relatorios.json"
+    ).exists()
+    template_relatorio_link = bool(
+        os.getenv("WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE", "").strip()
+    )
+    relatorios_link_ok = (
+        pasta_relatorios_pdf and token_relatorios and template_relatorio_link
+    )
+    integracoes.append({
+        "id": "relatorios_link",
+        "nome": "Relatorios por link",
+        "estado": "ok" if relatorios_link_ok else "atencao",
+        "detalhe": (
+            "Pasta restrita, autorizacao de upload e template configurados."
+            if relatorios_link_ok
+            else "Verifique a pasta de PDFs, a autorizacao de upload e o template."
+        ),
+    })
+
     whatsapp_configurado = all(
         os.getenv(chave, "").strip()
         for chave in (
@@ -135,8 +170,12 @@ def saude_integracoes():
     nome_template_equipe_documento = os.getenv(
         "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE", ""
     ).strip()
+    nome_template_relatorio_link = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE", ""
+    ).strip()
     template_equipe_configurado = (
-        nome_template_equipe_documento == "relatorio_pendencias_certificados"
+        bool(nome_template_relatorio_link)
+        or nome_template_equipe_documento == "relatorio_pendencias_certificados"
         or nome_template_equipe == "resumo_pendencias_certificados"
     )
     integracoes.append({
@@ -157,7 +196,8 @@ def saude_integracoes():
         "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE", ""
     ).strip()
     template_responsavel_configurado = (
-        nome_template_responsavel_documento
+        bool(nome_template_relatorio_link)
+        or nome_template_responsavel_documento
         == "relatorio_renovacoes_responsavel"
         or nome_template_responsavel == "resumo_renovacoes_responsavel"
     )
@@ -217,10 +257,15 @@ def configurar_agendador_automacao():
 @automacao_bp.route("/automacao/executar", methods=["POST"])
 def executar_automacao():
     dados = request.get_json(silent=True) or {}
+    escopo = str(dados.get("escopo_notificacoes_teste") or "completo").strip()
+    if escopo not in {"nenhum", "relatorios", "clientes", "completo"}:
+        return jsonify({"erro": "Escopo de notificacoes invalido"}), 400
     try:
         executor_automacao.executar(
             atualizar_excel=dados.get("atualizar_excel") is True,
             notificacoes_teste=dados.get("notificacoes_teste") is True,
+            escopo_notificacoes_teste=escopo,
+            forcar_reenvio_teste=dados.get("forcar_reenvio_teste") is True,
         )
         return jsonify(
             {

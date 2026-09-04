@@ -9,6 +9,8 @@ interface ConfigModalProps {
   onClose: () => void;
 }
 
+type EscopoMensagensTeste = 'nenhum' | 'relatorios' | 'clientes' | 'completo';
+
 interface HistoricoExecucao {
   id: string;
   estado: 'concluida' | 'falhou';
@@ -19,6 +21,15 @@ interface HistoricoExecucao {
   erro: string | null;
   atualizou_excel: boolean;
   notificacoes_teste: boolean;
+  escopo_notificacoes_teste?: EscopoMensagensTeste;
+  forcou_reenvio_teste?: boolean;
+}
+
+interface PreviaEnvio {
+  certificadosAviso: number;
+  avisosCliente: number;
+  pendenciasEquipe: number;
+  totalCertificados: number;
 }
 
 const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
@@ -93,6 +104,10 @@ export default function ConfigModal({
     proxima_execucao: null as string | null,
     ultima_execucao: null as string | null,
     ultimo_erro: null as string | null,
+    execucoes_hoje: [] as string[],
+    horarios_pendentes: [] as string[],
+    horarios_atrasados: [] as string[],
+    situacao: 'desativado' as 'normal' | 'desativado' | 'monitor_parado' | 'atrasado',
   });
   const [primeiroHorarioAgendador, setPrimeiroHorarioAgendador] = useState('09:00');
   const [segundoHorarioAgendador, setSegundoHorarioAgendador] = useState('14:00');
@@ -101,8 +116,11 @@ export default function ConfigModal({
   const [agendadorEditado, setAgendadorEditado] = useState(false);
   const [chaveAdmin, setChaveAdmin] = useState('');
   const [atualizarExcel, setAtualizarExcel] = useState(false);
-  const [enviarMensagens, setEnviarMensagens] = useState(false);
+  const [escopoMensagens, setEscopoMensagens] = useState<EscopoMensagensTeste>('nenhum');
+  const [forcarReenvioTeste, setForcarReenvioTeste] = useState(false);
   const [confirmarExecucao, setConfirmarExecucao] = useState(false);
+  const [carregandoPrevia, setCarregandoPrevia] = useState(false);
+  const [previaEnvio, setPreviaEnvio] = useState<PreviaEnvio | null>(null);
   const [automacaoStatus, setAutomacaoStatus] = useState({
     id: null as string | null,
     executando: false,
@@ -238,6 +256,46 @@ export default function ConfigModal({
     }
   };
 
+  const abrirPreviaExecucao = async () => {
+    if (!chaveAdmin.trim()) {
+      showMessage('Informe a chave administrativa.', 'error');
+      return;
+    }
+
+    setCarregandoPrevia(true);
+    setPreviaEnvio(null);
+    try {
+      const resposta = await fetch('/api/certificados', { cache: 'no-store' });
+      if (!resposta.ok) throw new Error('Nao foi possivel carregar a previa.');
+      const certificados = await resposta.json();
+      if (!Array.isArray(certificados)) throw new Error('Dados invalidos na previa.');
+
+      const ativos = certificados.filter((item) => item?.ativo !== false);
+      const vencendo = ativos.filter((item) => {
+        const dias = item?.dias_para_vencimento;
+        return Number.isInteger(dias) && dias >= 1 && dias <= 30;
+      });
+      const possuiValor = (valor: unknown) => String(valor ?? '').trim().length > 0;
+
+      setPreviaEnvio({
+        certificadosAviso: vencendo.length,
+        avisosCliente: vencendo.filter((item) => possuiValor(item?.telefone_contato)).length,
+        pendenciasEquipe: ativos.filter(
+          (item) => !possuiValor(item?.telefone_contato) || !possuiValor(item?.email_contato),
+        ).length,
+        totalCertificados: ativos.length,
+      });
+      setConfirmarExecucao(true);
+    } catch (erro) {
+      showMessage(
+        erro instanceof Error ? erro.message : 'Falha ao preparar a previa.',
+        'error',
+      );
+    } finally {
+      setCarregandoPrevia(false);
+    }
+  };
+
   const executarAutomacaoIntegrada = async () => {
     if (!chaveAdmin.trim()) {
       showMessage('Informe a chave administrativa.', 'error');
@@ -254,7 +312,9 @@ export default function ConfigModal({
         },
         body: JSON.stringify({
           atualizar_excel: atualizarExcel,
-          notificacoes_teste: enviarMensagens,
+          notificacoes_teste: escopoMensagens !== 'nenhum',
+          escopo_notificacoes_teste: escopoMensagens,
+          forcar_reenvio_teste: forcarReenvioTeste,
         }),
       });
       const conteudo = await resposta.json();
@@ -881,34 +941,69 @@ export default function ConfigModal({
                   />
                   Atualizar tambem a copia do Excel
                 </label>
-                <label className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-                  <input
-                    type="checkbox"
-                    checked={enviarMensagens}
-                    onChange={(evento) => setEnviarMensagens(evento.target.checked)}
-                    className="mt-0.5"
-                  />
-                  <span>
-                    <span className="block font-medium">Enviar mensagens</span>
-                    <span className="mt-1 block text-xs">
-                      Usa a WhatsContabil e envia somente para o numero de teste configurado.
-                    </span>
-                  </span>
-                </label>
+                <fieldset className="whatsapp-scope-panel rounded-xl border p-3 text-sm">
+                  <legend className="px-1 font-medium">Mensagens WhatsContabil</legend>
+                  <p className="whatsapp-safety-note mb-3 rounded-lg border px-3 py-2 text-xs">
+                    Trava de seguranca ativa: todos os envios usam exclusivamente o numero de teste.
+                  </p>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {([
+                      ['nenhum', 'Não enviar', 'Processa e sincroniza, sem mensagens.'],
+                      ['relatorios', 'Somente relatórios', 'Envia os dois PDFs por link.'],
+                      ['clientes', 'Somente clientes', 'Testa apenas os avisos individuais.'],
+                      ['completo', 'Fluxo completo', 'Relatórios primeiro e clientes depois.'],
+                    ] as const).map(([valor, titulo, descricao]) => (
+                      <label
+                        key={valor}
+                        className={`whatsapp-scope-option cursor-pointer rounded-lg border p-3 transition-colors ${escopoMensagens === valor ? 'whatsapp-scope-option-selected shadow-sm ring-1 ring-blue-500/20' : ''}`}
+                      >
+                        <span className="flex items-start gap-2">
+                          <input
+                            type="radio"
+                            name="escopo-mensagens"
+                            value={valor}
+                            checked={escopoMensagens === valor}
+                            onChange={() => {
+                              setEscopoMensagens(valor);
+                              if (valor === 'nenhum') setForcarReenvioTeste(false);
+                            }}
+                            className="mt-0.5 accent-blue-600"
+                          />
+                          <span>
+                            <span className="block font-medium">{titulo}</span>
+                            <span className="whatsapp-scope-description mt-0.5 block text-xs">{descricao}</span>
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                  {escopoMensagens !== 'nenhum' && (
+                    <label className="whatsapp-resend-warning mt-3 flex items-start gap-2 rounded-lg border p-3 text-xs">
+                      <input
+                        type="checkbox"
+                        checked={forcarReenvioTeste}
+                        onChange={(evento) => setForcarReenvioTeste(evento.target.checked)}
+                        className="mt-0.5 accent-red-600"
+                      />
+                      <span>
+                        <span className="block font-medium">Reenviar alertas já registrados</span>
+                        Deixe desmarcado normalmente. Ative somente quando quiser repetir deliberadamente um teste.
+                      </span>
+                    </label>
+                  )}
+                </fieldset>
                 <div className="flex flex-wrap items-center gap-3">
                   <button
-                    onClick={() => {
-                      if (!chaveAdmin.trim()) {
-                        showMessage('Informe a chave administrativa.', 'error');
-                        return;
-                      }
-                      setConfirmarExecucao(true);
-                    }}
-                    disabled={loading || automacaoStatus.executando}
+                    onClick={abrirPreviaExecucao}
+                    disabled={loading || carregandoPrevia || automacaoStatus.executando}
                     className="flex items-center rounded-lg bg-blue-600 px-4 py-2 text-white hover:bg-blue-700 disabled:opacity-50"
                   >
                     <Play className="mr-2 h-4 w-4" />
-                    {automacaoStatus.executando ? 'Executando...' : 'Executar agora'}
+                    {automacaoStatus.executando
+                      ? 'Executando...'
+                      : carregandoPrevia
+                        ? 'Preparando previa...'
+                        : 'Executar agora'}
                   </button>
                   <span className={`text-sm font-medium ${automacaoStatus.executando ? 'text-blue-600' : automacaoStatus.codigo_saida === 0 ? 'text-green-600' : automacaoStatus.erro ? 'text-red-600' : 'text-gray-600'}`}>
                     {automacaoStatus.executando
@@ -919,16 +1014,47 @@ export default function ConfigModal({
                   </span>
                 </div>
                 {confirmarExecucao && !automacaoStatus.executando && (
-                  <div className="rounded-lg border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
-                    <p className="font-semibold">Confirme antes de iniciar</p>
+                  <div className="automation-preview rounded-lg border p-4 text-sm">
+                    <p className="font-semibold">Previa da execucao</p>
+                    {previaEnvio && (
+                      <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-4">
+                        <div className="automation-preview-card rounded-lg p-2">
+                          <p className="automation-preview-label text-xs">Certificados</p>
+                          <p className="text-lg font-semibold">{previaEnvio.totalCertificados}</p>
+                        </div>
+                        <div className="automation-preview-card rounded-lg p-2">
+                          <p className="automation-preview-label text-xs">Entre 1 e 30 dias</p>
+                          <p className="text-lg font-semibold">{previaEnvio.certificadosAviso}</p>
+                        </div>
+                        <div className="automation-preview-card rounded-lg p-2">
+                          <p className="automation-preview-label text-xs">Com telefone</p>
+                          <p className="text-lg font-semibold">{previaEnvio.avisosCliente}</p>
+                        </div>
+                        <div className="automation-preview-card rounded-lg p-2">
+                          <p className="automation-preview-label text-xs">Contato pendente</p>
+                          <p className="text-lg font-semibold">{previaEnvio.pendenciasEquipe}</p>
+                        </div>
+                      </div>
+                    )}
+                    <p className="mt-2 text-xs">
+                      Estimativa baseada nos dados atualmente sincronizados. A automacao validara novamente os certificados e contatos antes do envio.
+                    </p>
                     <ul className="mt-2 space-y-1 [&>li:last-child]:hidden">
                       <li>• Certificados e clientes serão consultados.</li>
                       <li>• Atualização do Excel: {atualizarExcel ? 'ativada' : 'desativada'}.</li>
                       <li>• E-mails e WhatsContábil: desativados nesta execução manual.</li>
                     </ul>
                     <p className="mt-1">
-                      Mensagens pela WhatsContabil: {enviarMensagens ? 'ativadas para o numero de teste' : 'desativadas'}.
+                      Mensagens pela WhatsContabil: {escopoMensagens === 'nenhum' ? 'desativadas' : `${escopoMensagens}, somente para o numero de teste`}.
+                      {forcarReenvioTeste && escopoMensagens !== 'nenhum' ? ' Reenvio de duplicados autorizado para este teste.' : ''}
                     </p>
+                    {escopoMensagens !== 'nenhum' && (
+                      <div className="automation-preview-details mt-2 rounded-lg border px-3 py-2 text-xs">
+                        <p className="font-medium">Itens previstos neste escopo:</p>
+                        <p>{['relatorios', 'completo'].includes(escopoMensagens) ? 'Relatorio do responsavel e relatorio de pendencias da equipe.' : 'Nenhum relatorio.'}</p>
+                        <p>{['clientes', 'completo'].includes(escopoMensagens) ? `Ate ${previaEnvio?.avisosCliente ?? 0} avisos individuais de cliente.` : 'Nenhum aviso individual de cliente.'}</p>
+                      </div>
+                    )}
                     <div className="mt-4 flex flex-wrap gap-2">
                       <button
                         type="button"
@@ -1127,6 +1253,27 @@ export default function ConfigModal({
                   <p>Notificacoes de teste: {agendadorStatus.notificacoes_teste ? 'ativadas' : 'desativadas'}</p>
                   <p>Proxima execucao: {formatarDataHora(agendadorStatus.proxima_execucao)}</p>
                   <p>Ultima execucao agendada: {formatarDataHora(agendadorStatus.ultima_execucao)}</p>
+                  {agendadorStatus.ativo && (
+                    <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3">
+                      <div className="rounded-lg border border-green-200 bg-green-50 p-3">
+                        <p className="text-xs text-green-700">Executadas hoje</p>
+                        <p className="mt-1 font-semibold text-green-800">{agendadorStatus.execucoes_hoje?.length || 0}/2</p>
+                        <p className="mt-1 text-xs text-green-700">{agendadorStatus.execucoes_hoje?.join(', ') || 'Nenhuma ainda'}</p>
+                      </div>
+                      <div className="rounded-lg border border-blue-200 bg-blue-50 p-3">
+                        <p className="text-xs text-blue-700">Pendentes hoje</p>
+                        <p className="mt-1 font-semibold text-blue-800">{agendadorStatus.horarios_pendentes?.length || 0}</p>
+                        <p className="mt-1 text-xs text-blue-700">{agendadorStatus.horarios_pendentes?.join(', ') || 'Nenhuma'}</p>
+                      </div>
+                      <div className={`rounded-lg border p-3 ${agendadorStatus.horarios_atrasados?.length ? 'border-red-200 bg-red-50' : 'border-gray-200 bg-white'}`}>
+                        <p className={`text-xs ${agendadorStatus.horarios_atrasados?.length ? 'text-red-700' : 'text-gray-500'}`}>Atrasadas</p>
+                        <p className={`mt-1 font-semibold ${agendadorStatus.horarios_atrasados?.length ? 'text-red-700' : 'text-gray-800'}`}>{agendadorStatus.horarios_atrasados?.length || 0}</p>
+                        <p className={`mt-1 text-xs ${agendadorStatus.horarios_atrasados?.length ? 'text-red-700' : 'text-gray-500'}`}>{agendadorStatus.horarios_atrasados?.join(', ') || 'Tudo dentro do horario'}</p>
+                      </div>
+                    </div>
+                  )}
+                  {agendadorStatus.situacao === 'monitor_parado' && <p className="font-medium text-red-600">Atencao: agendador ativo, mas o monitor interno esta parado.</p>}
+                  {agendadorStatus.situacao === 'atrasado' && <p className="font-medium text-red-600">Atencao: existe uma execucao diaria atrasada.</p>}
                   {agendadorStatus.ultimo_erro && (
                     <p className="text-red-600">Erro: {agendadorStatus.ultimo_erro}</p>
                   )}

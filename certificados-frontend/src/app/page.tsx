@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
-import { 
+import {
+  Activity,
   Shield, 
   AlertTriangle, 
   Settings, 
@@ -179,6 +180,8 @@ export default function Home() {
   const [certificadoSelecionado, setCertificadoSelecionado] = useState<Certificado | null>(null);
   const [toast, setToast] = useState<ToastState | null>(null);
   const [filtroNotificacao, setFiltroNotificacao] = useState<FiltroPendencia>('todas');
+  const [buscaNotificacao, setBuscaNotificacao] = useState('');
+  const [somenteNaoLidas, setSomenteNaoLidas] = useState(false);
   const [abaCentral, setAbaCentral] = useState<'pendencias' | 'atividade'>('pendencias');
   const [pendenciasLidas, setPendenciasLidas] = useState<Set<string>>(new Set());
   const [urlInicializada, setUrlInicializada] = useState(false);
@@ -488,9 +491,19 @@ export default function Home() {
     })
     .sort((a, b) => a.prioridade - b.prioridade || a.certificado.nome_empresa.localeCompare(b.certificado.nome_empresa, 'pt-BR'));
 
-  const pendenciasExibidas = filtroNotificacao === 'todas'
-    ? pendencias
-    : pendencias.filter((item) => item.tipo === filtroNotificacao);
+  const termoNotificacao = buscaNotificacao.trim().toLocaleLowerCase('pt-BR');
+  const pendenciasExibidas = pendencias.filter((item) => {
+    if (filtroNotificacao !== 'todas' && item.tipo !== filtroNotificacao) return false;
+    if (somenteNaoLidas && pendenciasLidas.has(item.id)) return false;
+    if (!termoNotificacao) return true;
+    const texto = [
+      item.certificado.nome_empresa,
+      item.certificado.cpf_cnpj,
+      item.titulo,
+      item.descricao,
+    ].join(' ').toLocaleLowerCase('pt-BR');
+    return texto.includes(termoNotificacao);
+  });
   const pendenciasNaoLidas = pendencias.filter((item) => !pendenciasLidas.has(item.id));
 
   useEffect(() => {
@@ -555,6 +568,12 @@ export default function Home() {
   const marcarTodasPendenciasComoLidas = () => {
     const novosIds = new Set(pendenciasLidas);
     pendencias.forEach((item) => novosIds.add(item.id));
+    salvarPendenciasLidas(novosIds);
+  };
+
+  const marcarPendenciasExibidasComoLidas = () => {
+    const novosIds = new Set(pendenciasLidas);
+    pendenciasExibidas.forEach((item) => novosIds.add(item.id));
     salvarPendenciasLidas(novosIds);
   };
 
@@ -1082,19 +1101,19 @@ export default function Home() {
           }}
         >
           <div
-            className="modal-panel flex max-h-[88vh] w-full max-w-3xl flex-col overflow-hidden rounded-xl bg-white shadow-2xl"
+            className="notification-center modal-panel flex max-h-[90vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl"
             role="dialog"
             aria-modal="true"
             aria-labelledby="titulo-central-pendencias"
           >
-            <div className="flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-4 sm:px-6">
+            <div className="notification-center-header flex items-start justify-between gap-4 border-b border-gray-200 px-5 py-5 sm:px-7">
               <div>
                 <h3 id="titulo-central-pendencias" className="flex items-center text-lg font-semibold text-gray-900">
                   <Bell className="mr-2 h-5 w-5 text-blue-600" />
-                  Central de pendências
+                  Central de notificações
                 </h3>
                 <p className="mt-1 text-sm text-gray-500">
-                  {pendencias.length} aviso{pendencias.length === 1 ? '' : 's'} · {pendenciasNaoLidas.length} não lido{pendenciasNaoLidas.length === 1 ? '' : 's'}.
+                  Acompanhe pendências dos certificados e a atividade da automação.
                 </p>
                 {ultimaAtualizacao && (
                   <p className="mt-1 text-xs text-gray-400">
@@ -1125,7 +1144,7 @@ export default function Home() {
               </div>
             </div>
 
-            <div className="flex border-b border-gray-200 px-5 sm:px-6" role="tablist" aria-label="Seções da central">
+            <div className="flex border-b border-gray-200 px-5 sm:px-7" role="tablist" aria-label="Seções da central">
               <button
                 type="button"
                 role="tab"
@@ -1137,6 +1156,7 @@ export default function Home() {
                     : 'border-transparent text-gray-500 hover:text-gray-800'
                 }`}
               >
+                <Bell className="mr-2 inline h-4 w-4" />
                 Pendências
                 {pendenciasNaoLidas.length > 0 && (
                   <span className="ml-2 rounded-full bg-red-100 px-2 py-0.5 text-xs text-red-700">{pendenciasNaoLidas.length}</span>
@@ -1153,26 +1173,75 @@ export default function Home() {
                     : 'border-transparent text-gray-500 hover:text-gray-800'
                 }`}
               >
+                <Activity className="mr-2 inline h-4 w-4" />
                 Atividade da automação
               </button>
             </div>
 
-            <div className={`${abaCentral === 'pendencias' ? 'flex' : 'hidden'} flex-wrap gap-2 border-b border-gray-200 px-5 py-3 sm:px-6`} aria-label="Categorias de pendências">
-              {resumoPendencias.map((item) => (
+            <div className={`${abaCentral === 'pendencias' ? 'block' : 'hidden'} notification-toolbar border-b border-gray-200 px-5 py-4 sm:px-7`} aria-label="Categorias de pendências">
+              <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
+                {resumoPendencias.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    onClick={() => setFiltroNotificacao(item.id)}
+                    aria-pressed={filtroNotificacao === item.id}
+                    className={`notification-filter rounded-xl border px-3 py-2.5 text-left transition ${
+                      filtroNotificacao === item.id ? 'notification-filter-active' : ''
+                    }`}
+                  >
+                    <span className="block text-lg font-semibold">{item.quantidade}</span>
+                    <span className="text-xs font-medium">{item.label}</span>
+                  </button>
+                ))}
+              </div>
+              <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
+                <label className="relative min-w-0 flex-1">
+                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                  <input
+                    type="search"
+                    value={buscaNotificacao}
+                    onChange={(evento) => setBuscaNotificacao(evento.target.value)}
+                    placeholder="Buscar empresa, CNPJ ou motivo"
+                    className="w-full rounded-lg border border-gray-300 bg-white py-2 pl-9 pr-3 text-sm text-gray-800"
+                  />
+                </label>
+                <label className="notification-unread-toggle flex cursor-pointer items-center gap-2 rounded-lg border border-gray-300 px-3 py-2 text-xs font-medium text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={somenteNaoLidas}
+                    onChange={(evento) => setSomenteNaoLidas(evento.target.checked)}
+                    className="accent-blue-600"
+                  />
+                  Somente não lidas ({pendenciasNaoLidas.length})
+                </label>
+              </div>
+              <div className="mt-3 flex flex-wrap items-center gap-2">
                 <button
-                  key={item.id}
                   type="button"
-                  onClick={() => setFiltroNotificacao(item.id)}
-                  aria-pressed={filtroNotificacao === item.id}
-                  className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
-                    filtroNotificacao === item.id
-                      ? 'border-blue-600 bg-blue-600 text-white'
-                      : 'border-gray-300 bg-white text-gray-600 hover:border-blue-400 hover:text-blue-600'
-                  }`}
+                  onClick={marcarPendenciasExibidasComoLidas}
+                  disabled={pendenciasExibidas.length === 0}
+                  className="rounded-lg border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                 >
-                  {item.label} <span className="ml-1 opacity-75">{item.quantidade}</span>
+                  Marcar exibidas como lidas
                 </button>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => setFiltroNotificacao('sem_contato')}
+                  className="rounded-lg border border-blue-300 bg-blue-50 px-3 py-1.5 text-xs font-medium text-blue-700 hover:bg-blue-100"
+                >
+                  Ver empresas sem contato
+                </button>
+                {(buscaNotificacao || somenteNaoLidas || filtroNotificacao !== 'todas') && (
+                  <button
+                    type="button"
+                    onClick={() => { setBuscaNotificacao(''); setSomenteNaoLidas(false); setFiltroNotificacao('todas'); }}
+                    className="px-2 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800"
+                  >
+                    Limpar filtros
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className={`${abaCentral === 'pendencias' ? 'block' : 'hidden'} min-h-0 flex-1 overflow-y-auto`}>
@@ -1183,7 +1252,7 @@ export default function Home() {
                   <p className="mt-1 text-sm text-gray-500">Os dados carregados não possuem avisos desse tipo.</p>
                 </div>
               ) : (
-                <div className="divide-y divide-gray-200">
+                <div className="space-y-2 p-4 sm:px-6">
                   {pendenciasExibidas.map((item) => (
                     <button
                       key={item.id}
@@ -1192,7 +1261,7 @@ export default function Home() {
                         marcarPendenciaComoLida(item.id);
                         abrirCertificado(item.certificado);
                       }}
-                      className={`notification-item flex w-full items-start gap-3 px-5 py-4 text-left hover:bg-gray-50 sm:px-6 ${
+                      className={`notification-item notification-card flex w-full items-start gap-3 rounded-xl border border-gray-200 px-4 py-3.5 text-left hover:bg-gray-50 ${
                         pendenciasLidas.has(item.id) ? 'opacity-75' : 'notification-unread'
                       }`}
                     >
@@ -1220,8 +1289,10 @@ export default function Home() {
                         <span className="mt-1 block break-words text-sm text-gray-600">
                           {item.descricao}
                         </span>
-                        <span className="mt-1 block text-xs text-gray-400">
-                          {formatarDocumento(item.certificado.cpf_cnpj, item.certificado.tipo)} · clique para ver detalhes
+                        <span className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-400">
+                          <span>{formatarDocumento(item.certificado.cpf_cnpj, item.certificado.tipo)}</span>
+                          <span>{pendenciasLidas.has(item.id) ? 'Lida' : 'Nova notificação'}</span>
+                          <span className="font-medium text-blue-600">Ver certificado →</span>
                         </span>
                       </span>
                       <ArrowDown className="mt-2 h-4 w-4 -rotate-90 text-gray-400" />
@@ -1235,8 +1306,8 @@ export default function Home() {
               {abaCentral === 'atividade' && <AutomationActivityPanel />}
             </div>
 
-            <div className={`${abaCentral === 'pendencias' ? 'flex' : 'hidden'} flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-6`}>
-              <p className="text-xs text-gray-500">Esta central apenas exibe dados; nenhuma mensagem é enviada.</p>
+            <div className={`${abaCentral === 'pendencias' ? 'flex' : 'hidden'} flex-col-reverse gap-2 border-t border-gray-200 bg-gray-50 px-5 py-4 sm:flex-row sm:items-center sm:justify-between sm:px-7`}>
+              <p className="text-xs text-gray-500">Exibindo {pendenciasExibidas.length} de {pendencias.length} notificações. Nenhuma mensagem é enviada por esta tela.</p>
               <button
                 type="button"
                 onClick={aplicarPendenciasNaTabela}

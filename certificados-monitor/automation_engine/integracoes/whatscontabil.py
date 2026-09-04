@@ -1,6 +1,7 @@
 """Cliente somente de leitura para a API da aplicação WhatsContábil."""
 
 import json
+import mimetypes
 import os
 import re
 from pathlib import Path
@@ -12,6 +13,16 @@ from dotenv import load_dotenv
 
 class ErroWhatsContabil(Exception):
     """Erro compreensível ao acessar a API da WhatsContábil."""
+
+
+def _arquivo_multipart(caminho_arquivo, arquivo_aberto):
+    """Monta o anexo com nome e MIME exigidos pela Cloud API da Meta."""
+    tipo_mime, _ = mimetypes.guess_type(caminho_arquivo.name)
+    return (
+        caminho_arquivo.name,
+        arquivo_aberto,
+        tipo_mime or "application/octet-stream",
+    )
 
 
 def carregar_configuracao(pasta_projeto):
@@ -64,22 +75,29 @@ def _interpretar_erro_http(resposta):
     except ValueError:
         conteudo = None
 
-    if isinstance(conteudo, dict):
-        candidatos = (
-            conteudo.get("message"),
-            conteudo.get("error"),
-            conteudo.get("detail"),
-            conteudo.get("details"),
-        )
-        detalhe = next(
-            (
-                str(valor).strip()
-                for valor in candidatos
-                if isinstance(valor, (str, int, float))
-                and str(valor).strip()
-            ),
-            "",
-        )
+    def localizar_detalhe(valor, profundidade=0):
+        """Procura a mensagem da API sem registrar o corpo inteiro."""
+        if profundidade > 4:
+            return ""
+        if isinstance(valor, (str, int, float)):
+            return str(valor).strip()
+        if isinstance(valor, dict):
+            for chave in ("message", "error", "detail", "details", "reason"):
+                if chave in valor:
+                    encontrado = localizar_detalhe(
+                        valor[chave],
+                        profundidade + 1,
+                    )
+                    if encontrado:
+                        return encontrado
+        if isinstance(valor, list):
+            for item in valor:
+                encontrado = localizar_detalhe(item, profundidade + 1)
+                if encontrado:
+                    return encontrado
+        return ""
+
+    detalhe = localizar_detalhe(conteudo)
 
     if detalhe:
         detalhe = re.sub(r"\s+", " ", detalhe)[:500]
@@ -256,7 +274,9 @@ def enviar_template(
         arquivo_aberto = caminho_arquivo.open("rb")
         # A API da WhatsContabil espera exatamente o objeto do arquivo neste
         # campo. O requests monta filename e Content-Length no multipart.
-        arquivos = {"files": arquivo_aberto}
+        arquivos = {
+            "files": _arquivo_multipart(caminho_arquivo, arquivo_aberto)
+        }
 
     try:
         if arquivos is not None:
@@ -342,7 +362,7 @@ def enviar_midia(
         "to": (None, destinatario),
         "message": (None, mensagem),
         "whatsappId": (None, str(whatsapp_id)),
-        "medias": arquivo_aberto,
+        "medias": _arquivo_multipart(caminho_arquivo, arquivo_aberto),
     }
 
     try:

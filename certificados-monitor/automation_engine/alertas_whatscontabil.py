@@ -30,10 +30,16 @@ from integracoes.whatscontabil import (
     enviar_template,
     normalizar_telefone_brasil,
 )
+from integracoes.google_drive import (
+    ErroRelatorioDrive,
+    enviar_relatorio_drive,
+    obter_link_relatorio,
+)
 from registro_alertas import (
     alerta_ja_enviado,
     alerta_ja_possui_algum_envio,
     registrar_alerta_enviado,
+    registrar_evento_envio,
 )
 
 
@@ -759,14 +765,67 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
     # destinatario. Isso impede que um telefone de cliente seja usado por engano.
     destinatario = normalizar_telefone_brasil(telefone_teste)
     com_contato, para_equipe = classificar_alertas_por_contato(alertas)
-    ignorar_duplicidade_teste = True
+    ignorar_duplicidade_teste = os.getenv(
+        "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE",
+        "sim",
+    ).strip().casefold() in {"1", "s", "sim", "true"}
+    escopo_envio = os.getenv(
+        "WHATSCONTABIL_ESCOPO_ENVIO_TESTE",
+        "completo",
+    ).strip().casefold()
+    if escopo_envio not in {"nenhum", "relatorios", "clientes", "completo"}:
+        raise ErroWhatsContabil("Escopo de envio de teste invalido.")
     resumo = {
         "enviados": 0,
         "duplicados": 0,
         "falhas": 0,
+        "interrompidos": 0,
         "detalhes_falhas": [],
         "message_ids": [],
     }
+
+    def registro_alerta(alerta, tipo):
+        registro = dict(alerta)
+        registro["email"] = f"whatsapp:{tipo}:{destinatario}"
+        if alerta.get("tipo_aviso") == "recuperacao":
+            registro["dias"] = 0
+        return registro
+
+    def filtrar_duplicados(itens, tipo):
+        if ignorar_duplicidade_teste:
+            return list(itens)
+        pendentes = []
+        for alerta in itens:
+            registro = registro_alerta(alerta, tipo)
+            ja_enviado = (
+                alerta_ja_possui_algum_envio(registro)
+                if alerta.get("tipo_aviso") == "recuperacao"
+                else alerta_ja_enviado(registro)
+            )
+            if ja_enviado:
+                resumo["duplicados"] += 1
+                registrar_evento_envio(
+                    registro,
+                    tipo.replace("_teste", ""),
+                    "duplicado",
+                    "Envio ja registrado anteriormente",
+                )
+            else:
+                pendentes.append(alerta)
+        return pendentes
+
+    clientes_envio = filtrar_duplicados(com_contato, "cliente_teste")
+    responsavel_envio = filtrar_duplicados(com_contato, "responsavel_teste")
+    equipe_envio = filtrar_duplicados(para_equipe, "equipe_teste")
+    if escopo_envio == "nenhum":
+        clientes_envio = []
+        responsavel_envio = []
+        equipe_envio = []
+    elif escopo_envio == "relatorios":
+        clientes_envio = []
+    elif escopo_envio == "clientes":
+        responsavel_envio = []
+        equipe_envio = []
 
     nome_template = os.getenv("WHATSCONTABIL_TEMPLATE_TESTE", "").strip()
     if not nome_template:
@@ -806,15 +865,146 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
         "WHATSCONTABIL_TEMPLATE_ABERTURA_RELATORIO_TESTE",
         "",
     ).strip()
+    nome_template_relatorio_link = os.getenv(
+        "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE",
+        "",
+    ).strip()
+    permitir_fallback_midia = os.getenv(
+        "WHATSCONTABIL_PERMITIR_FALLBACK_MIDIA_TESTE",
+        "nao",
+    ).strip().casefold() in {"1", "s", "sim", "true"}
     nome_responsavel = os.getenv(
         "WHATSCONTABIL_NOME_RESPONSAVEL_TESTE",
-        "Responsavel pela equipe de certificados",
-    ).strip() or "Responsavel pela equipe de certificados"
+        "Responsavel",
+    ).strip() or "Responsavel"
     transmissoes = []
     pasta_relatorios = Path(pasta_projeto) / "relatorios" / "whatscontabil"
 
+    def adicionar_relatorio_por_link(tipo, itens, nome_destino):
+        """Gera, publica e prepara um relatorio; falhas nao cancelam os clientes."""
+        try:
+            caminho_relatorio = criar_relatorio_pdf(
+                itens,
+                tipo,
+                pasta_relatorios,
+            )
+            arquivo_drive = enviar_relatorio_drive(
+                caminho_relatorio,
+                pasta_projeto,
+            )
+            link = obter_link_relatorio(arquivo_drive)
+        except (ErroRelatorioDrive, OSError, ValueError) as erro:
+            resumo["falhas"] += 1
+            resumo["detalhes_falhas"].append({
+                "empresa": f"Relatorio interno: {tipo}",
+                "email": f"whatsapp:{destinatario}",
+                "erro": str(erro),
+            })
+            print(f"Falha ao publicar o relatorio de {tipo} no Drive: {erro}")
+            return
+
+        descricao = (
+            f"{len(itens)} certificados proximos do vencimento"
+            if tipo == "responsavel"
+            else f"{len(itens)} empresas com pendencias de contato"
+        )
+        transmissoes.append((
+            tipo,
+            nome_template_relatorio_link,
+            [nome_destino, descricao, link],
+            itens,
+            None,
+        ))
+
     if nome_template == TEMPLATE_CLIENTE:
-        for alerta in com_contato:
+        # No modo de teste, todos os avisos usam o mesmo telefone. Os
+        # relatorios internos precisam ir primeiro para nao ficarem no fim de
+        # um lote grande e serem recusados pela API por excesso de mensagens
+        # seguidas ao mesmo destinatario.
+        if nome_template_relatorio_link and responsavel_envio:
+            adicionar_relatorio_por_link(
+                "responsavel",
+                responsavel_envio,
+                nome_responsavel,
+            )
+        elif (
+            nome_template_responsavel_documento
+            == TEMPLATE_RESPONSAVEL_DOCUMENTO
+            and responsavel_envio
+        ):
+            caminho_relatorio = criar_relatorio_pdf(
+                responsavel_envio,
+                "responsavel",
+                pasta_relatorios,
+            )
+            transmissoes.append((
+                "responsavel",
+                nome_template_responsavel_documento,
+                [nome_responsavel, str(len(responsavel_envio))],
+                responsavel_envio,
+                caminho_relatorio,
+            ))
+        elif (
+            nome_template_responsavel == TEMPLATE_RESPONSAVEL_RESUMO
+            and responsavel_envio
+        ):
+            transmissoes.append((
+                "responsavel",
+                nome_template_responsavel,
+                _variaveis_template_resumo_responsavel(
+                    responsavel_envio,
+                    nome_responsavel,
+                ),
+                responsavel_envio,
+                None,
+            ))
+        elif responsavel_envio:
+            print(
+                "Relatorio do responsavel nao enviado: configure o template "
+                f"Utility com documento {TEMPLATE_RESPONSAVEL_DOCUMENTO} em "
+                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE."
+            )
+        if nome_template_relatorio_link and equipe_envio:
+            adicionar_relatorio_por_link(
+                "equipe",
+                equipe_envio,
+                nome_destinatario,
+            )
+        elif (
+            nome_template_equipe_documento == TEMPLATE_EQUIPE_DOCUMENTO
+            and equipe_envio
+        ):
+            caminho_relatorio = criar_relatorio_pdf(
+                equipe_envio,
+                "equipe",
+                pasta_relatorios,
+            )
+            transmissoes.append((
+                "equipe",
+                nome_template_equipe_documento,
+                [nome_destinatario, str(len(equipe_envio))],
+                equipe_envio,
+                caminho_relatorio,
+            ))
+        elif nome_template_equipe == TEMPLATE_EQUIPE_RESUMO and equipe_envio:
+            transmissoes.append((
+                "equipe",
+                nome_template_equipe,
+                _variaveis_template_resumo_equipe(
+                    equipe_envio,
+                    nome_destinatario,
+                ),
+                equipe_envio,
+                None,
+            ))
+        elif equipe_envio:
+            print(
+                "Relatorio da equipe nao enviado: configure o template "
+                f"Utility com documento {TEMPLATE_EQUIPE_DOCUMENTO} em "
+                "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE."
+            )
+
+        for alerta in clientes_envio:
             transmissoes.append((
                 "cliente",
                 nome_template,
@@ -822,78 +1012,8 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 [alerta],
                 None,
             ))
-        if (
-            nome_template_responsavel_documento
-            == TEMPLATE_RESPONSAVEL_DOCUMENTO
-            and com_contato
-        ):
-            caminho_relatorio = criar_relatorio_pdf(
-                com_contato,
-                "responsavel",
-                pasta_relatorios,
-            )
-            transmissoes.append((
-                "responsavel",
-                nome_template_responsavel_documento,
-                [nome_responsavel, str(len(com_contato))],
-                com_contato,
-                caminho_relatorio,
-            ))
-        elif (
-            nome_template_responsavel == TEMPLATE_RESPONSAVEL_RESUMO
-            and com_contato
-        ):
-            transmissoes.append((
-                "responsavel",
-                nome_template_responsavel,
-                _variaveis_template_resumo_responsavel(
-                    com_contato,
-                    nome_responsavel,
-                ),
-                com_contato,
-                None,
-            ))
-        elif com_contato:
-            print(
-                "Relatorio do responsavel nao enviado: configure o template "
-                f"Utility com documento {TEMPLATE_RESPONSAVEL_DOCUMENTO} em "
-                "WHATSCONTABIL_TEMPLATE_RESPONSAVEL_DOCUMENTO_TESTE."
-            )
-        if (
-            nome_template_equipe_documento == TEMPLATE_EQUIPE_DOCUMENTO
-            and para_equipe
-        ):
-            caminho_relatorio = criar_relatorio_pdf(
-                para_equipe,
-                "equipe",
-                pasta_relatorios,
-            )
-            transmissoes.append((
-                "equipe",
-                nome_template_equipe_documento,
-                [nome_destinatario, str(len(para_equipe))],
-                para_equipe,
-                caminho_relatorio,
-            ))
-        elif nome_template_equipe == TEMPLATE_EQUIPE_RESUMO and para_equipe:
-            transmissoes.append((
-                "equipe",
-                nome_template_equipe,
-                _variaveis_template_resumo_equipe(
-                    para_equipe,
-                    nome_destinatario,
-                ),
-                para_equipe,
-                None,
-            ))
-        elif para_equipe:
-            print(
-                "Relatorio da equipe nao enviado: configure o template "
-                f"Utility com documento {TEMPLATE_EQUIPE_DOCUMENTO} em "
-                "WHATSCONTABIL_TEMPLATE_EQUIPE_DOCUMENTO_TESTE."
-            )
     else:
-        for alerta in com_contato:
+        for alerta in clientes_envio:
             transmissoes.append((
                 "cliente",
                 nome_template,
@@ -906,7 +1026,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
             ))
 
         for mensagem, itens in _montar_relatorios_template(
-            com_contato,
+            responsavel_envio,
             "RELATORIO PARA O FUNCIONARIO RESPONSAVEL",
             _montar_bloco_responsavel,
         ):
@@ -919,7 +1039,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
             ))
 
         for mensagem, itens in _montar_relatorios_template(
-            para_equipe,
+            equipe_envio,
             "PENDENCIAS DE CONTATO PARA A EQUIPE",
             _montar_bloco_equipe,
         ):
@@ -931,7 +1051,12 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 None,
             ))
 
-    print(f"Templates de teste preparados: {len(transmissoes)}")
+    print(
+        f"Escopo das mensagens de teste: {escopo_envio}. "
+        f"Templates preparados: {len(transmissoes)}"
+    )
+    falhas_consecutivas = 0
+    limite_falhas = 3
     for numero, (
         tipo,
         template_transmissao,
@@ -949,6 +1074,7 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 arquivo is not None
                 and nome_template_abertura_relatorio
                 == TEMPLATE_ABERTURA_RELATORIO
+                and permitir_fallback_midia
             )
             if usar_fallback_midia:
                 descricao_relatorio = (
@@ -991,12 +1117,16 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
             resposta = resultado.get("resposta") or {}
             resumo["message_ids"].extend(resposta.get("messageIds") or [])
             resumo["enviados"] += 1
+            falhas_consecutivas = 0
+            for item in itens:
+                registrar_alerta_enviado(registro_alerta(item, tipo + "_teste"))
             print(
                 f"Template de {tipo} {numero}/{len(transmissoes)} aceito "
                 f"pela WhatsContabil ({len(itens)} certificado(s)"
                 f"{'; documento enviado como midia' if usar_fallback_midia else '; documento anexado' if arquivo else ''})."
             )
         except (ErroWhatsContabil, OSError) as erro:
+            falhas_consecutivas += 1
             resumo["falhas"] += 1
             resumo["detalhes_falhas"].append({
                 "empresa": ", ".join(
@@ -1006,7 +1136,31 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
                 "email": f"whatsapp:{destinatario}",
                 "erro": str(erro),
             })
+            for item in itens:
+                registrar_evento_envio(
+                    registro_alerta(item, tipo + "_teste"),
+                    tipo,
+                    "falhou",
+                    str(erro),
+                )
             print(f"Falha no template de {tipo}: {erro}")
+            restantes = len(transmissoes) - numero
+            if falhas_consecutivas >= limite_falhas and restantes:
+                resumo["interrompidos"] += restantes
+                for tipo_restante, _, _, itens_restantes, _ in transmissoes[numero:]:
+                    for item in itens_restantes:
+                        registrar_evento_envio(
+                            registro_alerta(item, tipo_restante + "_teste"),
+                            tipo_restante,
+                            "interrompido",
+                            "Lote interrompido apos falhas consecutivas",
+                        )
+                print(
+                    "Lote interrompido por seguranca apos "
+                    f"{falhas_consecutivas} falhas consecutivas. "
+                    f"Mensagens nao tentadas: {restantes}."
+                )
+                break
             print("O lote continuara com o proximo template.")
 
     return resumo

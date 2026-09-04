@@ -371,6 +371,10 @@ def imprimir_relatorio_final(
         "Falhas de envio pela WhatsContábil: "
         f"{resumo_whatscontabil['falhas']}"
     )
+    print(
+        "Mensagens da WhatsContábil não tentadas por segurança: "
+        f"{resumo_whatscontabil.get('interrompidos', 0)}"
+    )
     print("---------------------------")
     print("Quantidade por status:")
     for nome_status, quantidade in sorted(status.items()):

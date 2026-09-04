@@ -99,6 +99,28 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
             "configurado",
         )
 
+    @patch("src.routes.automacao.Path.exists", return_value=True)
+    def test_saude_reconhece_relatorios_por_link_configurados(self, _exists):
+        with patch.dict(
+            os.environ,
+            {
+                "GOOGLE_DRIVE_PASTA_RELATORIOS_PDF_ID": "pasta-segura",
+                "WHATSCONTABIL_TEMPLATE_RELATORIO_LINK_TESTE": (
+                    "relatorio_certificados_link_"
+                ),
+            },
+            clear=False,
+        ):
+            resposta = self.cliente.get(
+                "/api/automacao/saude",
+                headers={"X-Automation-Key": "chave-interna-teste"},
+            )
+
+        integracoes = {
+            item["id"]: item for item in resposta.json["integracoes"]
+        }
+        self.assertEqual(integracoes["relatorios_link"]["estado"], "ok")
+
     def test_rejeita_horario_invalido_no_agendador(self):
         resposta = self.cliente.post(
             "/api/automacao/agendador-configurar",
@@ -127,7 +149,18 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
         executar.assert_called_once_with(
             atualizar_excel=True,
             notificacoes_teste=True,
+            escopo_notificacoes_teste="completo",
+            forcar_reenvio_teste=False,
         )
+
+    def test_execucao_manual_rejeita_escopo_desconhecido(self):
+        resposta = self.cliente.post(
+            "/api/automacao/executar",
+            headers={"X-Automation-Key": "chave-interna-teste"},
+            json={"escopo_notificacoes_teste": "numeros_reais"},
+        )
+
+        self.assertEqual(resposta.status_code, 400)
 
 
 class ExecutorAutomacaoTestCase(unittest.TestCase):
@@ -156,6 +189,12 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertEqual(ambiente["MODO_WHATSCONTABIL"], "teste")
         self.assertEqual(ambiente["ATUALIZAR_EXCEL_AUTOMATICO"], "nao")
         self.assertEqual(ambiente["ENVIAR_WHATSCONTABIL_AUTOMATICO"], "sim")
+        self.assertEqual(ambiente["WHATSCONTABIL_ESCOPO_ENVIO_TESTE"], "completo")
+        self.assertEqual(ambiente["WHATSCONTABIL_PERMITIR_NUMEROS_REAIS"], "nao")
+        self.assertEqual(
+            ambiente["IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE"],
+            "nao",
+        )
 
     def test_bloqueia_segunda_execucao_durante_inicializacao(self):
         executor = ExecutorAutomacao()
@@ -187,6 +226,14 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertEqual(resumo["email_enviados"], 3)
         self.assertEqual(resumo["email_duplicados"], 2)
         self.assertEqual(resumo["whatscontabil_falhas"], 1)
+
+    def test_etapa_e_progresso_sao_extraidos_dos_logs(self):
+        executor = ExecutorAutomacao()
+        executor._registrar("Consultando dados dos clientes pelo CNPJ...")
+        status = executor.status()
+
+        self.assertEqual(status["etapa"], "Consultando dados dos clientes")
+        self.assertEqual(status["progresso"], 45)
 
     def test_historico_e_salvo_e_recarregado(self):
         with tempfile.TemporaryDirectory() as pasta:
