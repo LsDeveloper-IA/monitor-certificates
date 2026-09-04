@@ -6,6 +6,7 @@ from flask import Flask
 
 from src.models.user import db
 from src.routes.relatorio import relatorio_bp
+from src.routes.relatorio import _sucessos_por_empresas_drive
 
 
 def empresa(numero, motivo="Certificado não encontrado"):
@@ -50,6 +51,76 @@ class RelatorioDriveTestCase(unittest.TestCase):
             db.session.remove()
             db.drop_all()
         os.environ.pop("GOOGLE_DRIVE_PASTA_RELATORIOS_ID", None)
+
+    def test_empresas_do_drive_sem_falha_sao_listadas_como_sucesso(self):
+        empresas_drive = [empresa(1), empresa(2), empresa(3)]
+
+        sucessos = _sucessos_por_empresas_drive(
+            empresas_drive,
+            [empresa(2)],
+            [],
+        )
+
+        self.assertEqual(
+            [item["nome"] for item in sucessos],
+            ["Empresa 1", "Empresa 3"],
+        )
+
+    def test_extrai_cnpj_do_nome_da_empresa_do_drive(self):
+        empresas_drive = [{
+            "cnpj": "",
+            "nome": "12.345.678/0001-90 - Empresa Exemplo",
+        }]
+
+        sucessos = _sucessos_por_empresas_drive(
+            empresas_drive,
+            [],
+            [],
+        )
+
+        self.assertEqual(len(sucessos), 1)
+        self.assertEqual(sucessos[0]["cnpj"], "12345678000190")
+        self.assertEqual(sucessos[0]["nome"], "Empresa Exemplo")
+
+    def test_compara_automacao_e_drive_para_preencher_cnpj_e_nome(self):
+        empresas_drive = [{
+            "cnpj": "",
+            "nome": "12.345.678/0001-90 - Empresa Exemplo",
+        }]
+        sucessos_explicitos = [{
+            "cnpj": "12345678000190",
+            "nome": "Empresa Exemplo",
+        }]
+
+        sucessos = _sucessos_por_empresas_drive(
+            empresas_drive,
+            [],
+            sucessos_explicitos,
+        )
+
+        self.assertEqual(len(sucessos), 1)
+        self.assertEqual(sucessos[0]["cnpj"], "12345678000190")
+        self.assertEqual(sucessos[0]["nome"], "Empresa Exemplo")
+
+    def test_aceita_dados_da_automacao_com_campo_empresa(self):
+        empresas_drive = [{
+            "cnpj": "",
+            "nome": "2WV CONSTRUCOES E REFORMAS LTDA",
+        }]
+        sucessos_explicitos = [{
+            "empresa": "2WV CONSTRUCOES E REFORMAS LTDA",
+            "cnpj": "12345678000190",
+        }]
+
+        sucessos = _sucessos_por_empresas_drive(
+            empresas_drive,
+            [],
+            sucessos_explicitos,
+        )
+
+        self.assertEqual(len(sucessos), 1)
+        self.assertEqual(sucessos[0]["nome"], "2WV CONSTRUCOES E REFORMAS LTDA")
+        self.assertEqual(sucessos[0]["cnpj"], "12345678000190")
 
     @patch("src.routes.relatorio.ler_relatorio_json")
     @patch("src.routes.relatorio.listar_relatorios_json")

@@ -8,7 +8,7 @@ from unittest.mock import patch
 from flask import Flask
 
 from src.routes.automacao import automacao_bp
-from src.services.executor_automacao import ExecutorAutomacao
+from src.services.executor_automacao import ExecutorAutomacao, executor_sieg_automacao
 
 
 class AutomacaoProtegidaTestCase(unittest.TestCase):
@@ -214,6 +214,13 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertFalse(status["executando"])
         self.assertIsNone(status["duracao_segundos"])
         self.assertEqual(status["resumo_envios"]["email_enviados"], 0)
+
+    def test_executor_sieg_usa_a_pasta_separada(self):
+        pasta_repositorio = Path(__file__).resolve().parents[2]
+        pasta_sieg = pasta_repositorio / "automacao-sieg"
+
+        self.assertTrue((pasta_sieg / "main.py").exists())
+        self.assertEqual(executor_sieg_automacao.pasta_motor, pasta_sieg)
 
     def test_resumo_de_envios_e_extraido_dos_logs(self):
         executor = ExecutorAutomacao()

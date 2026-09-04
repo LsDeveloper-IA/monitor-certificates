@@ -6,6 +6,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 from flask import Flask, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
+from pathlib import Path
 from src.models.user import db
 from src.models.certificado import Certificado
 from src.routes.user import user_bp
@@ -18,6 +19,7 @@ from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
 from src.services.agendador_automacao import agendador_automacao
 
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 load_dotenv()
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 modo_debug = os.getenv('FLASK_DEBUG', 'true').strip().lower() in {'1', 'true', 'sim', 'yes'}

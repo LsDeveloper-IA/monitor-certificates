@@ -34,7 +34,7 @@ class ExecutorAutomacao:
         ),
     }
 
-    def __init__(self, arquivo_historico=None):
+    def __init__(self, arquivo_historico=None, pasta_motor=None):
         self._lock = threading.Lock()
         self._processo = None
         self._executando = False
@@ -43,6 +43,7 @@ class ExecutorAutomacao:
         self._fim = None
         self._codigo_saida = None
         self._erro = None
+        self._interrompida = False
         self._execucao_id = None
         self._atualizar_excel = False
         self._notificacoes_teste = False
@@ -52,6 +53,7 @@ class ExecutorAutomacao:
         self._etapa = "Aguardando nova execucao"
         self._progresso = 0
         self._arquivo_log_execucao = None
+        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
@@ -75,6 +77,8 @@ class ExecutorAutomacao:
 
     @property
     def pasta_motor(self):
+        if self._pasta_motor_personalizada:
+            return self._pasta_motor_personalizada
         return Path(__file__).resolve().parents[2] / "automation_engine"
 
     @property
@@ -144,6 +148,8 @@ class ExecutorAutomacao:
         )
         if executando:
             estado = "executando"
+        elif self._interrompida:
+            estado = "interrompida"
         elif self._codigo_saida == 0:
             estado = "concluida"
         elif self._codigo_saida is not None:
@@ -230,6 +236,7 @@ class ExecutorAutomacao:
             self._fim = None
             self._codigo_saida = None
             self._erro = None
+            self._interrompida = False
             self._execucao_id = uuid.uuid4().hex
             pasta_logs = self._arquivo_historico.parent / "execucoes"
             pasta_logs.mkdir(parents=True, exist_ok=True)
@@ -268,6 +275,22 @@ class ExecutorAutomacao:
             self._registrar_historico()
             raise
 
+    def parar(self):
+        with self._lock:
+            processo = self._processo
+            if not self._executando or processo is None:
+                return False
+            self._interrompida = True
+            if os.name == "nt":
+                subprocess.run(
+                    ["taskkill", "/PID", str(processo.pid), "/T", "/F"],
+                    capture_output=True,
+                    check=False,
+                )
+            else:
+                processo.terminate()
+        return True
+
     def _executar_processo(
         self,
         atualizar_excel,
@@ -282,6 +305,10 @@ class ExecutorAutomacao:
             forcar_reenvio_teste,
         )
         try:
+            flags = 0
+            if os.name == "nt":
+                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+
             processo = subprocess.Popen(
                 [sys.executable, "main.py"],
                 cwd=self.pasta_motor,
@@ -291,7 +318,8 @@ class ExecutorAutomacao:
                 text=True,
                 encoding="utf-8",
                 errors="replace",
-                creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+                creationflags=flags,
+                start_new_session=(os.name != "nt"),
             )
             with self._lock:
                 self._processo = processo
@@ -301,7 +329,7 @@ class ExecutorAutomacao:
             codigo = processo.wait()
             with self._lock:
                 self._codigo_saida = codigo
-                if codigo != 0:
+                if codigo != 0 and not self._interrompida:
                     self._erro = f"Automacao encerrada com codigo {codigo}"
                     self._etapa = "Execucao encerrada com erro"
                 else:
@@ -333,3 +361,7 @@ class ExecutorAutomacao:
 
 
 executor_automacao = ExecutorAutomacao()
+executor_sieg_automacao = ExecutorAutomacao(
+    arquivo_historico=Path(__file__).resolve().parents[2] / "runtime" / "historico_sieg.json",
+    pasta_motor=Path(__file__).resolve().parents[3] / "automacao-sieg",
+)

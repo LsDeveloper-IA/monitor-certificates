@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle, ArrowLeft, Building2, CheckCircle2, Clock3,
-  FileJson, Moon, RefreshCw, Search, Sun, XCircle,
+  FileJson, Moon, Play, RefreshCw, Search, Square, Sun, XCircle,
 } from 'lucide-react';
 
 interface EmpresaResultado { cnpj: string; nome: string; motivo?: string }
@@ -26,6 +26,14 @@ function formatarCnpj(valor: string) {
   return numeros.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2})$/, '$1.$2.$3/$4-$5');
 }
 
+const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
+interface StatusAutomacao {
+  executando: boolean;
+  estado: string;
+  logs: string[];
+  erro?: string | null;
+}
+
 export default function CertificadosVencidos() {
   const [relatorio, setRelatorio] = useState<Relatorio | null>(null);
   const [erro, setErro] = useState('');
@@ -33,6 +41,9 @@ export default function CertificadosVencidos() {
   const [busca, setBusca] = useState('');
   const [modoEscuro, setModoEscuro] = useState(false);
   const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos'>('falhas');
+  const [executandoAutomacao, setExecutandoAutomacao] = useState(false);
+  const [mensagemAutomacao, setMensagemAutomacao] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
+  const [statusAutomacao, setStatusAutomacao] = useState<StatusAutomacao>({ executando: false, estado: 'aguardando', logs: [] });
 
   const carregar = useCallback(async () => {
     setCarregando(true); setErro('');
@@ -41,9 +52,11 @@ export default function CertificadosVencidos() {
       const tipoConteudo = resposta.headers.get('content-type') || '';
       const conteudo = tipoConteudo.includes('application/json')
         ? await resposta.json()
-        : { erro: resposta.status >= 500
-          ? 'O servidor backend está indisponível. Inicie o serviço na porta 5000.'
-          : 'O servidor retornou uma resposta inválida.' };
+        : {
+          erro: resposta.status >= 500
+            ? 'O servidor backend está indisponível. Inicie o serviço na porta 5000.'
+            : 'O servidor retornou uma resposta inválida.'
+        };
       if (!resposta.ok) throw new Error(conteudo.erro || 'Falha ao carregar o relatório.');
       setRelatorio(conteudo);
     } catch (e) {
@@ -59,6 +72,77 @@ export default function CertificadosVencidos() {
     return () => window.clearInterval(intervalo);
   }, [carregar]);
 
+  const carregarStatusAutomacao = useCallback(async () => {
+    try {
+      const resposta = await fetch('/api/automacao/sieg-status', { cache: 'no-store' });
+      if (resposta.ok) setStatusAutomacao(await resposta.json());
+    } catch {
+      // O status não deve impedir a leitura do relatório.
+    }
+  }, []);
+
+  useEffect(() => {
+    carregarStatusAutomacao();
+    const intervalo = window.setInterval(carregarStatusAutomacao, 2000);
+    return () => window.clearInterval(intervalo);
+  }, [carregarStatusAutomacao]);
+
+  const executarAutomacaoSieg = useCallback(async () => {
+    const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO)?.trim() || '';
+
+    setExecutandoAutomacao(true);
+    setMensagemAutomacao(null);
+
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (chaveAdmin) {
+        headers['X-Admin-Key'] = chaveAdmin;
+      }
+
+      const resposta = await fetch('/api/automacao/sieg-executar', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          atualizar_excel: true,
+          notificacoes_teste: false,
+        }),
+      });
+
+      const conteudo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) {
+        throw new Error(conteudo?.erro || 'Falha ao iniciar a automação SIEG.');
+      }
+
+      setMensagemAutomacao({
+        tipo: 'success',
+        texto: 'Automação SIEG iniciada em segundo plano.',
+      });
+      window.dispatchEvent(new Event('certificados-monitor:automacao-alterada'));
+      setTimeout(() => carregar(), 1500);
+    } catch (erro) {
+      setMensagemAutomacao({
+        tipo: 'error',
+        texto: erro instanceof Error ? erro.message : 'Falha ao iniciar a automação SIEG.',
+      });
+    } finally {
+      setExecutandoAutomacao(false);
+    }
+  }, [carregar]);
+
+  const pararAutomacaoSieg = useCallback(async () => {
+    try {
+      const resposta = await fetch('/api/automacao/sieg-parar', { method: 'POST' });
+      const conteudo = await resposta.json().catch(() => ({}));
+      if (!resposta.ok) throw new Error(conteudo?.erro || 'Não foi possível parar a automação SIEG.');
+      setMensagemAutomacao({ tipo: 'success', texto: 'Automação SIEG interrompida.' });
+      await carregarStatusAutomacao();
+    } catch (erro) {
+      setMensagemAutomacao({ tipo: 'error', texto: erro instanceof Error ? erro.message : 'Falha ao parar a automação SIEG.' });
+    }
+  }, [carregarStatusAutomacao]);
+
   const alternarTema = () => {
     const novo = !modoEscuro; setModoEscuro(novo);
     document.documentElement.classList.toggle('dark', novo);
@@ -68,7 +152,7 @@ export default function CertificadosVencidos() {
   const resumo = relatorio?.resumo || {};
   const listaSucessos = relatorio?.empresas_com_sucesso ||
     relatorio?.empresas_certas || relatorio?.empresas_corretas || [];
-  const sucessos = Number(resumo.certas ?? resumo.sucessos ?? listaSucessos.length);
+  const sucessos = Number(resumo.sucessos ?? listaSucessos.length);
   const ignorados = Number(resumo.ignorados || 0);
   const falhas = Number(resumo.falhas ?? relatorio?.empresas_com_falha.length ?? 0);
   const total = sucessos + ignorados + falhas;
@@ -102,6 +186,22 @@ export default function CertificadosVencidos() {
           <h1 className="text-xl font-semibold text-gray-900 truncate">Certificados vencidos</h1>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={executarAutomacaoSieg}
+            disabled={executandoAutomacao}
+            className="inline-flex items-center gap-2 rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            {executandoAutomacao ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+            {executandoAutomacao ? 'Executando...' : 'Automação SIEG'}
+          </button>
+          {statusAutomacao.executando && <button
+            type="button"
+            onClick={pararAutomacaoSieg}
+            className="inline-flex items-center gap-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm font-medium text-red-700 hover:bg-red-100"
+          >
+            <Square className="w-4 h-4" /> Parar
+          </button>}
           <button onClick={carregar} className="p-2 text-gray-500 hover:text-blue-600" title="Atualizar">
             <RefreshCw className={`w-5 h-5 ${carregando ? 'animate-spin' : ''}`} />
           </button>
@@ -116,6 +216,21 @@ export default function CertificadosVencidos() {
       {erro && <div className="mb-6 rounded-lg border border-red-200 bg-red-50 p-4 text-red-700 flex gap-3">
         <AlertTriangle className="w-5 h-5 shrink-0" /><div><p className="font-medium">Não foi possível abrir o relatório</p><p className="text-sm mt-1">{erro}</p></div>
       </div>}
+
+      {mensagemAutomacao && (
+        <div className={`mb-6 rounded-lg border p-4 flex gap-3 ${mensagemAutomacao.tipo === 'success' ? 'border-green-200 bg-green-50 text-green-700' : 'border-red-200 bg-red-50 text-red-700'}`}>
+          <AlertTriangle className="w-5 h-5 shrink-0" />
+          <div className="text-sm font-medium">{mensagemAutomacao.texto}</div>
+        </div>
+      )}
+
+      {statusAutomacao.executando && <section className="mb-6 rounded-lg border border-blue-200 bg-blue-50 p-4 text-blue-900">
+        <div className="flex items-center gap-2">
+          <RefreshCw className="w-4 h-4 animate-spin" />
+          <p className="font-medium">Automação SIEG em execução</p>
+        </div>
+        <p className="mt-2 text-sm">{statusAutomacao.logs.at(-1) || 'Iniciando automação...'}</p>
+      </section>}
 
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-gray-900">{relatorio?.titulo || 'Resumo da automação SIEG'}</h2>
@@ -208,8 +323,8 @@ export default function CertificadosVencidos() {
         {!carregando && !empresas.length && !erro && resultadoAtivo === 'falhas' && <p className="p-8 text-center text-gray-500">Nenhuma empresa com falha encontrada.</p>}
         {!carregando && !empresas.length && !erro && resultadoAtivo === 'sucessos' && <div className="p-8 text-center">
           <CheckCircle2 className="mx-auto mb-3 h-8 w-8 text-green-500" />
-          <p className="font-medium text-gray-900">O resumo informa {sucessos} empresas com sucesso.</p>
-          <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">Este arquivo ainda não inclui a lista nominal <code>empresas_com_sucesso</code>. Quando a automação adicionar essa lista ao JSON, as empresas aparecerão aqui automaticamente.</p>
+          <p className="font-medium text-gray-900">Nenhuma empresa processada com sucesso foi registrada neste relatório.</p>
+          <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">As empresas só aparecem aqui quando a automação SIEG conclui o processamento e grava a lista nominal.</p>
         </div>}
       </section>
     </main>

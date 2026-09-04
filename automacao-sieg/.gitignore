@@ -1,0 +1,9 @@
+.vscode/
+node_modules/
+.pnpm-store/
+.env
+credentials.json
+token.pickle
+registros/
+__pycache__/
+*.pyc

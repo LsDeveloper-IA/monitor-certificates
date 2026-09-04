@@ -7,7 +7,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import text
 
 from src.models.user import db
-from src.services.executor_automacao import executor_automacao
+from src.services.executor_automacao import executor_automacao, executor_sieg_automacao
 from src.services.agendador_automacao import agendador_automacao
 from automation_engine.registro_alertas import listar_alertas_enviados
 
@@ -275,3 +275,37 @@ def executar_automacao():
         ), 202
     except RuntimeError as erro:
         return jsonify({"erro": str(erro)}), 409
+
+
+@automacao_bp.route("/automacao/parar", methods=["POST"])
+def parar_automacao():
+    if not executor_automacao.parar():
+        return jsonify({"erro": "Nenhuma automacao SIEG em execucao"}), 409
+    return jsonify({"mensagem": "Automacao SIEG interrompida"}), 200
+
+
+@automacao_bp.route("/automacao/sieg-status", methods=["GET"])
+def status_automacao_sieg():
+    return jsonify(executor_sieg_automacao.status()), 200
+
+
+@automacao_bp.route("/automacao/sieg-executar", methods=["POST"])
+def executar_automacao_sieg():
+    dados = request.get_json(silent=True) or {}
+    try:
+        executor_sieg_automacao.executar(
+            atualizar_excel=dados.get("atualizar_excel") is True,
+            notificacoes_teste=False,
+            escopo_notificacoes_teste="nenhum",
+            forcar_reenvio_teste=False,
+        )
+        return jsonify({"mensagem": "Automacao SIEG iniciada", "status": executor_sieg_automacao.status()}), 202
+    except RuntimeError as erro:
+        return jsonify({"erro": str(erro)}), 409
+
+
+@automacao_bp.route("/automacao/sieg-parar", methods=["POST"])
+def parar_automacao_sieg():
+    if not executor_sieg_automacao.parar():
+        return jsonify({"erro": "Nenhuma automacao SIEG em execucao"}), 409
+    return jsonify({"mensagem": "Automacao SIEG interrompida"}), 200
