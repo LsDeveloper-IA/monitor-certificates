@@ -7,12 +7,18 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
+from googleapiclient.http import MediaFileUpload
 
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
 ]
 ESCOPO_DRIVE_COMPLETO = "https://www.googleapis.com/auth/drive"
+ESCOPO_ARQUIVOS_CRIADOS = "https://www.googleapis.com/auth/drive.file"
+
+
+class ErroRelatorioDrive(Exception):
+    """Erro compreensivel ao publicar um relatorio no Google Drive."""
 
 def conectar_google_drive(pasta_projeto):
     pasta_projeto = Path(pasta_projeto).resolve()
@@ -72,6 +78,130 @@ def conectar_google_drive(pasta_projeto):
     return build("drive", "v3", credentials=credenciais)
 
 
+def conectar_google_drive_relatorios(pasta_projeto):
+    """Cria um cliente separado, capaz de gravar apenas arquivos do aplicativo."""
+    pasta_projeto = Path(pasta_projeto)
+    arquivo_credentials = pasta_projeto / "credentials.json"
+    arquivo_token = pasta_projeto / "token_drive_relatorios.json"
+    escopos = [ESCOPO_ARQUIVOS_CRIADOS]
+    credenciais = None
+
+    if arquivo_token.exists():
+        credenciais = Credentials.from_authorized_user_file(
+            arquivo_token,
+            escopos,
+        )
+        if not credenciais.has_scopes(escopos):
+            raise ErroRelatorioDrive(
+                "O token de relatorios do Drive nao possui permissao de upload. "
+                "Renomeie-o e faca uma nova autorizacao do Google."
+            )
+
+    if not credenciais or not credenciais.valid:
+        if (
+            credenciais
+            and credenciais.expired
+            and credenciais.refresh_token
+        ):
+            credenciais.refresh(Request())
+        else:
+            if not arquivo_credentials.is_file():
+                raise ErroRelatorioDrive(
+                    "credentials.json nao foi encontrado para autorizar o upload."
+                )
+            fluxo = InstalledAppFlow.from_client_secrets_file(
+                arquivo_credentials,
+                escopos,
+            )
+            credenciais = fluxo.run_local_server(port=0)
+
+        arquivo_token.write_text(
+            credenciais.to_json(),
+            encoding="utf-8",
+        )
+
+    return build("drive", "v3", credentials=credenciais)
+
+
+def configurar_permissao_relatorio(drive, arquivo_id, modo="restrito", leitor=None):
+    """Configura leitura sem tornar o arquivo publico por acidente."""
+    modo = str(modo or "restrito").strip().casefold()
+    leitor = str(leitor or "").strip()
+
+    if modo == "restrito":
+        # O arquivo herda os acessos da pasta onde foi criado.
+        return {"modo": "restrito", "herdada_da_pasta": True}
+
+    if modo not in {"usuario", "dominio"}:
+        raise ErroRelatorioDrive(
+            "Permissao de relatorio invalida. Use restrito, usuario ou dominio."
+        )
+    if not leitor:
+        raise ErroRelatorioDrive(
+            "Informe o e-mail ou dominio autorizado a ler os relatorios."
+        )
+
+    corpo = {"type": "user" if modo == "usuario" else "domain", "role": "reader"}
+    if modo == "usuario":
+        corpo["emailAddress"] = leitor
+    else:
+        corpo["domain"] = leitor
+
+    return drive.permissions().create(
+        fileId=arquivo_id,
+        body=corpo,
+        fields="id,type,role",
+        sendNotificationEmail=False,
+        supportsAllDrives=True,
+    ).execute()
+
+
+def obter_link_relatorio(arquivo_drive):
+    """Retorna o link de visualizacao de um arquivo ja enviado ao Drive."""
+    if not isinstance(arquivo_drive, dict) or not arquivo_drive.get("id"):
+        raise ErroRelatorioDrive("O Drive nao retornou o ID do relatorio enviado.")
+    return arquivo_drive.get("webViewLink") or (
+        f"https://drive.google.com/file/d/{arquivo_drive['id']}/view"
+    )
+
+
+def enviar_relatorio_drive(caminho_pdf, pasta_projeto):
+    """Envia um PDF e devolve seus metadados; nao altera permissao para publico."""
+    caminho_pdf = Path(caminho_pdf)
+    if not caminho_pdf.is_file() or caminho_pdf.suffix.casefold() != ".pdf":
+        raise ErroRelatorioDrive("O relatorio PDF nao foi encontrado para upload.")
+
+    pasta_id = os.getenv("GOOGLE_DRIVE_PASTA_RELATORIOS_PDF_ID", "").strip()
+    if not pasta_id:
+        raise ErroRelatorioDrive(
+            "GOOGLE_DRIVE_PASTA_RELATORIOS_PDF_ID nao foi configurado."
+        )
+
+    drive = conectar_google_drive_relatorios(pasta_projeto)
+    midia = MediaFileUpload(
+        str(caminho_pdf),
+        mimetype="application/pdf",
+        resumable=False,
+    )
+    try:
+        arquivo = drive.files().create(
+            body={"name": caminho_pdf.name, "parents": [pasta_id]},
+            media_body=midia,
+            fields="id,name,mimeType,webViewLink",
+            supportsAllDrives=True,
+        ).execute()
+    finally:
+        fluxo_arquivo = midia.stream()
+        if fluxo_arquivo and not fluxo_arquivo.closed:
+            fluxo_arquivo.close()
+
+    modo = os.getenv(
+        "GOOGLE_DRIVE_RELATORIOS_PERMISSAO",
+        "restrito",
+    )
+    leitor = os.getenv("GOOGLE_DRIVE_RELATORIOS_LEITOR", "")
+    configurar_permissao_relatorio(drive, arquivo["id"], modo, leitor)
+    return arquivo
 def baixar_certificados_drive(drive, pasta_id, destino):
     """Baixa PFX/P12 da Ã¡rvore do Drive preservando as pastas das empresas."""
     destino = Path(destino)

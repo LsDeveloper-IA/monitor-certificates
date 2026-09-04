@@ -401,15 +401,16 @@ def sincronizar_relatorios_drive():
         raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
 
     with _lock_acumulacao:
-        arquivo = max(
+        arquivos_ordenados = sorted(
             arquivos,
             key=lambda item: str(item.get("modifiedTime") or item.get("name") or ""),
         )
-        dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
-        db.session.query(EmpresaRelatorio).delete()
-        db.session.query(RelatorioDriveProcessado).delete()
-        db.session.commit()
-        _acumular_relatorio(dados, arquivo)
+        for arquivo in arquivos_ordenados:
+            chave = _chave_relatorio(arquivo)
+            if RelatorioDriveProcessado.query.filter_by(chave=chave).first():
+                continue
+            dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
+            _acumular_relatorio(dados, arquivo)
         relatorio = _montar_relatorio_acumulado()
         if os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip():
             empresas_drive = listar_empresas_drive(drive)

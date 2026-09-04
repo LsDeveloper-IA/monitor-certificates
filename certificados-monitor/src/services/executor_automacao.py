@@ -9,8 +9,19 @@ from collections import deque
 from datetime import datetime
 from pathlib import Path
 
+from dotenv import dotenv_values
+
 
 class ExecutorAutomacao:
+    _ETAPAS_PROGRESSO = (
+        ("consultando dados dos clientes", "Consultando dados dos clientes", 45),
+        ("sincroniza", "Sincronizando certificados com o painel", 65),
+        ("alertas de 30 ou 15 dias", "Preparando alertas e relatorios", 78),
+        ("avisos de clientes entre", "Preparando notificacoes de teste", 84),
+        ("templates preparados", "Enviando notificacoes de teste", 90),
+        ("template de ", "Enviando notificacoes de teste", 94),
+        ("relatorio final da automacao", "Finalizando relatorio da execucao", 98),
+    )
     _PADROES_RESUMO_ENVIOS = {
         "Alertas enviados:": "email_enviados",
         "Alertas duplicados ignorados:": "email_duplicados",
@@ -18,9 +29,12 @@ class ExecutorAutomacao:
         "Alertas internos enviados pela WhatsContábil:": "whatscontabil_enviados",
         "Alertas internos duplicados ignorados:": "whatscontabil_duplicados",
         "Falhas de envio pela WhatsContábil:": "whatscontabil_falhas",
+        "Mensagens da WhatsContábil não tentadas por segurança:": (
+            "whatscontabil_interrompidos"
+        ),
     }
 
-    def __init__(self, arquivo_historico=None):
+    def __init__(self, arquivo_historico=None, pasta_motor=None):
         self._lock = threading.Lock()
         self._processo = None
         self._processos = {}
@@ -38,8 +52,13 @@ class ExecutorAutomacao:
         self._execucao_id = None
         self._atualizar_excel = False
         self._notificacoes_teste = False
+        self._escopo_notificacoes_teste = "nenhum"
+        self._forcar_reenvio_teste = False
         self._resumo_envios = self._novo_resumo_envios()
+        self._etapa = "Aguardando nova execucao"
+        self._progresso = 0
         self._arquivo_log_execucao = None
+        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
@@ -58,10 +77,13 @@ class ExecutorAutomacao:
             "whatscontabil_enviados": 0,
             "whatscontabil_duplicados": 0,
             "whatscontabil_falhas": 0,
+            "whatscontabil_interrompidos": 0,
         }
 
     @property
     def pastas_motores(self):
+        if self._pasta_motor_personalizada:
+            return {"certificados_vencidos": self._pasta_motor_personalizada}
         raiz = Path(__file__).resolve().parents[3]
         return {
             "certificados_vencidos": raiz / "automacao-sieg",
@@ -72,6 +94,48 @@ class ExecutorAutomacao:
     def pasta_motor(self):
         """Mantido para compatibilidade com integrações antigas."""
         return self.pastas_motores["certificados_vencidos"]
+
+    @property
+    def arquivo_env(self):
+        return Path(__file__).resolve().parents[2] / ".env"
+
+    def _montar_ambiente_execucao(
+        self,
+        atualizar_excel,
+        notificacoes_teste,
+        escopo_notificacoes_teste="completo",
+        forcar_reenvio_teste=False,
+    ):
+        ambiente = os.environ.copy()
+        configuracao_atual = dotenv_values(self.arquivo_env)
+        ambiente.update({
+            str(chave): str(valor)
+            for chave, valor in configuracao_atual.items()
+            if valor is not None
+        })
+        ambiente.update(
+            {
+                "MODO_AUTOMATICO": "sim",
+                "ATUALIZAR_EXCEL_AUTOMATICO": "sim" if atualizar_excel else "nao",
+                "SINCRONIZAR_API_AUTOMATICO": "sim",
+                "ENVIAR_EMAIL_AUTOMATICO": "nao",
+                "ENVIAR_WHATSCONTABIL_AUTOMATICO": (
+                    "sim" if notificacoes_teste else "nao"
+                ),
+                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": (
+                    "sim" if forcar_reenvio_teste else "nao"
+                ),
+                "WHATSCONTABIL_ESCOPO_ENVIO_TESTE": (
+                    escopo_notificacoes_teste if notificacoes_teste else "nenhum"
+                ),
+                "MODO_WHATSCONTABIL": "teste",
+                "WHATSCONTABIL_PERMITIR_NUMEROS_REAIS": "nao",
+                "PYTHONUNBUFFERED": "1",
+                "PYTHONUTF8": "1",
+                "PYTHONIOENCODING": "utf-8",
+            }
+        )
+        return ambiente
 
     def _carregar_historico(self):
         try:
@@ -117,7 +181,11 @@ class ExecutorAutomacao:
             "erro": self._erro,
             "atualizou_excel": self._atualizar_excel,
             "notificacoes_teste": self._notificacoes_teste,
+            "escopo_notificacoes_teste": self._escopo_notificacoes_teste,
+            "forcou_reenvio_teste": self._forcar_reenvio_teste,
             "resumo_envios": dict(self._resumo_envios),
+            "etapa": self._etapa,
+            "progresso": self._progresso,
             "arquivo_log": (
                 self._arquivo_log_execucao.name
                 if self._arquivo_log_execucao
@@ -144,6 +212,11 @@ class ExecutorAutomacao:
                 self._logs.append(texto)
                 arquivo_log = self._arquivo_log_execucao
                 texto_limpo = re.sub(r"\x1b\[[0-9;]*m", "", texto)
+                texto_busca = texto_limpo.casefold()
+                for marcador, etapa, progresso in self._ETAPAS_PROGRESSO:
+                    if marcador in texto_busca and progresso >= self._progresso:
+                        self._etapa = etapa
+                        self._progresso = progresso
                 for rotulo, campo in self._PADROES_RESUMO_ENVIOS.items():
                     encontrado = re.search(
                         rf"{re.escape(rotulo)}\s*(\d+)",
@@ -161,7 +234,13 @@ class ExecutorAutomacao:
                     # se o arquivo local estiver temporariamente indisponivel.
                     pass
 
-    def executar(self, atualizar_excel=False, notificacoes_teste=False):
+    def executar(
+        self,
+        atualizar_excel=False,
+        notificacoes_teste=False,
+        escopo_notificacoes_teste="completo",
+        forcar_reenvio_teste=False,
+    ):
         with self._lock:
             if self._executando:
                 raise RuntimeError("A automacao ja esta em execucao")
@@ -182,12 +261,25 @@ class ExecutorAutomacao:
             )
             self._atualizar_excel = atualizar_excel
             self._notificacoes_teste = notificacoes_teste
+            self._escopo_notificacoes_teste = (
+                escopo_notificacoes_teste if notificacoes_teste else "nenhum"
+            )
+            self._forcar_reenvio_teste = bool(
+                forcar_reenvio_teste and notificacoes_teste
+            )
             self._resumo_envios = self._novo_resumo_envios()
+            self._etapa = "Iniciando processamento"
+            self._progresso = 5
 
         try:
             threading.Thread(
                 target=self._executar_processo,
-                args=(atualizar_excel, notificacoes_teste),
+                args=(
+                    atualizar_excel,
+                    notificacoes_teste,
+                    self._escopo_notificacoes_teste,
+                    self._forcar_reenvio_teste,
+                ),
                 daemon=True,
             ).start()
         except Exception as erro:
@@ -216,25 +308,18 @@ class ExecutorAutomacao:
                     processo.terminate()
         return True
 
-    def _executar_processo(self, atualizar_excel, notificacoes_teste):
-        ambiente = os.environ.copy()
-        ambiente.update(
-            {
-                "MODO_AUTOMATICO": "sim",
-                "ATUALIZAR_EXCEL_AUTOMATICO": "sim" if atualizar_excel else "nao",
-                "SINCRONIZAR_API_AUTOMATICO": "sim",
-                "ENVIAR_EMAIL_AUTOMATICO": "nao",
-                "ENVIAR_WHATSCONTABIL_AUTOMATICO": (
-                    "sim" if notificacoes_teste else "nao"
-                ),
-                "IGNORAR_DUPLICIDADE_WHATSCONTABIL_TESTE": (
-                    "sim" if notificacoes_teste else "nao"
-                ),
-                "MODO_WHATSCONTABIL": "teste",
-                "PYTHONUNBUFFERED": "1",
-                "PYTHONUTF8": "1",
-                "PYTHONIOENCODING": "utf-8",
-            }
+    def _executar_processo(
+        self,
+        atualizar_excel,
+        notificacoes_teste,
+        escopo_notificacoes_teste,
+        forcar_reenvio_teste,
+    ):
+        ambiente = self._montar_ambiente_execucao(
+            atualizar_excel,
+            notificacoes_teste,
+            escopo_notificacoes_teste,
+            forcar_reenvio_teste,
         )
 
         # A Auto_NC nova usa as mesmas credenciais já configuradas para a
@@ -308,10 +393,15 @@ class ExecutorAutomacao:
                 if codigo != 0 and not self._interrompida:
                     falhas = [nome for nome, valor in resultados.items() if valor != 0]
                     self._erro = "Falha em: " + ", ".join(falhas)
+                    self._etapa = "Execucao encerrada com erro"
+                else:
+                    self._etapa = "Processamento concluido"
+                    self._progresso = 100
         except Exception as erro:
             with self._lock:
                 self._codigo_saida = -1
                 self._erro = str(erro)
+                self._etapa = "Falha ao executar a automacao"
             self._registrar(f"ERRO: {erro}")
         finally:
             with self._lock:
@@ -351,3 +441,7 @@ class ExecutorAutomacao:
 
 
 executor_automacao = ExecutorAutomacao()
+executor_sieg_automacao = ExecutorAutomacao(
+    arquivo_historico=Path(__file__).resolve().parents[2] / "runtime" / "historico_sieg.json",
+    pasta_motor=Path(__file__).resolve().parents[3] / "automacao-sieg",
+)

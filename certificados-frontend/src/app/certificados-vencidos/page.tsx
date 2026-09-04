@@ -114,7 +114,7 @@ export default function CertificadosVencidos() {
         headers['X-Admin-Key'] = chaveAdmin;
       }
 
-      const resposta = await fetch('/api/automacao/executar', {
+      const resposta = await fetch('/api/automacao/sieg-executar', {
         method: 'POST',
         headers,
         body: JSON.stringify({

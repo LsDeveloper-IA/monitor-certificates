@@ -17,8 +17,12 @@ async function encaminhar(
   if (![
     'status',
     'historico',
+    'historico-mensagens',
     'executar',
     'parar',
+    'sieg-status',
+    'sieg-executar',
+    'sieg-parar',
     'agendador-status',
     'agendador-configurar',
     'saude',

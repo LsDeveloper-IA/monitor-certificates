@@ -66,6 +66,20 @@ class AgendadorAutomacaoTestCase(unittest.TestCase):
         self.assertFalse(repeticao_segunda)
         self.assertEqual(executor.chamadas, [(True, False), (True, False)])
 
+    def test_status_identifica_horario_atrasado(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            agendador = AgendadorAutomacao(
+                ExecutorFalso(),
+                Path(pasta) / "agendador.json",
+            )
+            with patch.object(agendador, "iniciar_monitoramento"):
+                agendador.configurar(True, ["09:00", "14:00"])
+            status = agendador.status(datetime(2026, 8, 27, 10, 0))
+
+        self.assertEqual(status["horarios_atrasados"], ["09:00"])
+        self.assertEqual(status["horarios_pendentes"], ["09:00", "14:00"])
+        self.assertEqual(status["execucoes_hoje"], [])
+
     def test_rejeita_horarios_iguais(self):
         with tempfile.TemporaryDirectory() as pasta:
             agendador = AgendadorAutomacao(

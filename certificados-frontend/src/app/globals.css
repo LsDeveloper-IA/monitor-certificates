@@ -273,6 +273,69 @@ html.dark .notification-unread {
   background-color: rgb(30 64 175 / 0.13);
 }
 
+html:not(.dark) .notification-center-header,
+html:not(.dark) .notification-toolbar {
+  background: #f8fafc;
+}
+
+html:not(.dark) .notification-filter {
+  border-color: #cbd5e1;
+  background: #ffffff;
+  color: #334155;
+}
+
+html:not(.dark) .notification-filter:hover {
+  border-color: #60a5fa;
+  background: #eff6ff;
+}
+
+html:not(.dark) .notification-filter-active {
+  border-color: #2563eb;
+  background: #2563eb;
+  color: #ffffff;
+  box-shadow: 0 5px 14px rgb(37 99 235 / 0.2);
+}
+
+html:not(.dark) .notification-card {
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgb(15 23 42 / 0.06);
+}
+
+html:not(.dark) .notification-unread-toggle {
+  background: #ffffff;
+}
+
+html.dark .notification-center-header,
+html.dark .notification-toolbar {
+  background: #0f172a;
+}
+
+html.dark .notification-filter {
+  border-color: #334155;
+  background: #111827;
+  color: #cbd5e1;
+}
+
+html.dark .notification-filter:hover {
+  border-color: #38bdf8;
+  background: #1e293b;
+}
+
+html.dark .notification-filter-active {
+  border-color: #2563eb;
+  background: #1d4ed8;
+  color: #ffffff;
+  box-shadow: 0 5px 18px rgb(0 0 0 / 0.25);
+}
+
+html.dark .notification-card {
+  background: #111827;
+}
+
+html.dark .notification-unread-toggle {
+  background: #111827;
+}
+
 html.dark .dashboard-card:hover {
   box-shadow: 0 12px 28px rgb(0 0 0 / 0.32);
 }
@@ -287,3 +350,104 @@ html.dark .toast-enter {
   border-color: #475569 !important;
   color: #f8fafc !important;
 }
+
+/* Escopo da WhatsContabil: segue o tema escolhido no site, nao o tema do SO. */
+html:not(.dark) .whatsapp-scope-panel {
+  background-color: #f8fafc;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+html:not(.dark) .whatsapp-safety-note {
+  background-color: #ecfdf5;
+  border-color: #a7f3d0;
+  color: #047857;
+}
+
+html:not(.dark) .whatsapp-scope-option {
+  background-color: #ffffff;
+  border-color: #cbd5e1;
+  color: #0f172a;
+}
+
+html:not(.dark) .whatsapp-scope-option:hover {
+  background-color: #eff6ff;
+  border-color: #93c5fd;
+}
+
+html:not(.dark) .whatsapp-scope-option-selected {
+  background-color: #eff6ff;
+  border-color: #3b82f6;
+}
+
+html:not(.dark) .whatsapp-scope-description { color: #475569; }
+
+html:not(.dark) .whatsapp-resend-warning {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: #991b1b;
+}
+
+html.dark .whatsapp-scope-panel {
+  background-color: rgb(15 23 42 / 0.55);
+  border-color: #374151;
+  color: #f3f4f6;
+}
+
+html.dark .whatsapp-safety-note {
+  background-color: rgb(2 44 34 / 0.55);
+  border-color: #065f46;
+  color: #6ee7b7;
+}
+
+html.dark .whatsapp-scope-option {
+  background-color: rgb(15 23 42 / 0.72);
+  border-color: #374151;
+  color: #f3f4f6;
+}
+
+html.dark .whatsapp-scope-option:hover {
+  background-color: #1e293b;
+  border-color: #1d4ed8;
+}
+
+html.dark .whatsapp-scope-option-selected {
+  background-color: rgb(23 37 84 / 0.72);
+  border-color: #60a5fa;
+}
+
+html.dark .whatsapp-scope-description { color: #94a3b8; }
+
+html.dark .whatsapp-resend-warning {
+  background-color: rgb(69 10 10 / 0.55);
+  border-color: #991b1b;
+  color: #fecaca;
+}
+
+html:not(.dark) .automation-preview {
+  border-color: #fcd34d;
+  background: #fffbeb;
+  color: #78350f;
+}
+
+html:not(.dark) .automation-preview-card,
+html:not(.dark) .automation-preview-details {
+  border-color: #fde68a;
+  background: rgba(255, 255, 255, 0.82);
+}
+
+html:not(.dark) .automation-preview-label { color: #b45309; }
+
+html.dark .automation-preview {
+  border-color: #92400e;
+  background: rgba(69, 26, 3, 0.55);
+  color: #fef3c7;
+}
+
+html.dark .automation-preview-card,
+html.dark .automation-preview-details {
+  border-color: #78350f;
+  background: rgba(15, 23, 42, 0.72);
+}
+
+html.dark .automation-preview-label { color: #fbbf24; }
