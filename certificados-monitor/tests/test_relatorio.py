@@ -195,7 +195,10 @@ class RelatorioDriveTestCase(unittest.TestCase):
 
         resposta = self.cliente.get("/api/relatorios/certificados-vencidos")
 
-        self.assertEqual(resposta.json["resumo"]["falhas"], 0)
+        # A lista reflete o estado atual, mas o contador preserva o maior
+        # volume de falhas já observado.
+        self.assertEqual(resposta.json["resumo"]["falhas"], 1)
+        self.assertEqual(len(resposta.json["empresas_com_falha"]), 0)
         self.assertEqual(len(resposta.json["empresas_com_sucesso"]), 1)
 
     @patch("src.routes.relatorio.listar_relatorios_json", return_value=[])

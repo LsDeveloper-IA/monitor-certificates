@@ -44,6 +44,7 @@ class ExecutorAutomacao:
         self._lock = threading.Lock()
         self._processo = None
         self._processos = {}
+        self._resultados_motores = {}
         self._executando = False
         self._logs = deque(maxlen=300)
         self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
@@ -260,6 +261,7 @@ class ExecutorAutomacao:
             self._logs.clear()
             for logs in self._logs_por_automacao.values():
                 logs.clear()
+            self._resultados_motores = {}
             self._inicio = datetime.now()
             self._fim = None
             self._codigo_saida = None
@@ -383,10 +385,14 @@ class ExecutorAutomacao:
 
             def acompanhar(identificador, pasta):
                 try:
-                    resultados[identificador] = executar_motor(identificador, pasta)
+                    resultado = executar_motor(identificador, pasta)
                 except Exception as erro:
-                    resultados[identificador] = -1
+                    resultado = -1
                     self._registrar_motor(identificador, f"ERRO: {erro}")
+                with self._lock:
+                    resultados[identificador] = resultado
+                    self._resultados_motores[identificador] = resultado
+                    self._processos.pop(identificador, None)
 
             for identificador, pasta in self.pastas_motores.items():
                 thread = threading.Thread(
@@ -432,17 +438,34 @@ class ExecutorAutomacao:
 
     def status(self):
         with self._lock:
+            def status_motor(identificador, nome):
+                codigo = self._resultados_motores.get(identificador)
+                if identificador in self._processos:
+                    estado = "executando"
+                elif codigo == 0:
+                    estado = "concluida"
+                elif codigo is not None:
+                    estado = "interrompida" if self._interrompida else "falhou"
+                else:
+                    estado = "aguardando"
+                return {
+                    "nome": nome,
+                    "estado": estado,
+                    "codigo_saida": codigo,
+                    "logs": list(self._logs_por_automacao[identificador]),
+                }
+
             return {
                 **self._resumo_sem_logs(),
                 "logs": list(self._logs),
                 "automacoes": {
-                    identificador: {
-                        "nome": self._nomes_motores.get(
+                    identificador: status_motor(
+                        identificador,
+                        self._nomes_motores.get(
                             identificador, identificador.replace("_", " ").title()
                         ),
-                        "logs": list(logs),
-                    }
-                    for identificador, logs in self._logs_por_automacao.items()
+                    )
+                    for identificador in self._logs_por_automacao
                 },
             }
 

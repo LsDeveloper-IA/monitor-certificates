@@ -7,6 +7,7 @@ import unicodedata
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify
+from sqlalchemy import func
 
 from automation_engine.integracoes.google_drive import (
     conectar_google_drive,
@@ -27,9 +28,13 @@ def _carregar_empresas_sem_certificado():
     try:
         conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
         empresas = conteudo.get("empresas", [])
-        return _deduplicar_empresas(empresas) if isinstance(empresas, list) else []
+        empresas = _deduplicar_empresas(empresas) if isinstance(empresas, list) else []
+        maior_quantidade = _inteiro_nao_negativo(
+            conteudo.get("maior_quantidade"), len(empresas)
+        )
+        return empresas, max(len(empresas), maior_quantidade)
     except (FileNotFoundError, OSError, ValueError, TypeError):
-        return []
+        return [], 0
 
 
 def _inteiro_nao_negativo(valor, padrao=0):
@@ -362,7 +367,17 @@ def _montar_relatorio_acumulado():
     if ultimo is None:
         raise FileNotFoundError("Nenhum relatório foi processado.")
 
-    total_sucessos = len(sucessos)
+    recordes = db.session.query(
+        func.max(RelatorioDriveProcessado.total_sucessos),
+        func.max(RelatorioDriveProcessado.total_ignorados),
+        func.max(RelatorioDriveProcessado.total_falhas),
+    ).one()
+    total_sucessos = max(len(sucessos), _inteiro_nao_negativo(recordes[0]))
+    total_ignorados = max(
+        _inteiro_nao_negativo(ultimo.total_ignorados),
+        _inteiro_nao_negativo(recordes[1]),
+    )
+    total_falhas = max(len(falhas), _inteiro_nao_negativo(recordes[2]))
 
     return {
         "titulo": ultimo.titulo or "Resumo acumulado da automação SIEG",
@@ -370,8 +385,8 @@ def _montar_relatorio_acumulado():
         "resumo": {
             "certas": 0,
             "sucessos": total_sucessos,
-            "ignorados": _inteiro_nao_negativo(ultimo.total_ignorados),
-            "falhas": len(falhas),
+            "ignorados": total_ignorados,
+            "falhas": total_falhas,
         },
         "empresas_com_falha": [empresa.to_dict() for empresa in falhas],
         "empresas_com_sucesso": [empresa.to_dict() for empresa in sucessos],
@@ -401,16 +416,21 @@ def sincronizar_relatorios_drive():
         raise FileNotFoundError("Nenhum arquivo JSON foi encontrado na pasta do Drive.")
 
     with _lock_acumulacao:
+        chaves_processadas = {
+            chave
+            for (chave,) in db.session.query(RelatorioDriveProcessado.chave).all()
+        }
         arquivos_ordenados = sorted(
             arquivos,
             key=lambda item: str(item.get("modifiedTime") or item.get("name") or ""),
         )
         for arquivo in arquivos_ordenados:
             chave = _chave_relatorio(arquivo)
-            if RelatorioDriveProcessado.query.filter_by(chave=chave).first():
+            if chave in chaves_processadas:
                 continue
             dados = _normalizar_relatorio(ler_relatorio_json(drive, arquivo))
             _acumular_relatorio(dados, arquivo)
+            chaves_processadas.add(chave)
         relatorio = _montar_relatorio_acumulado()
         if os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip():
             empresas_drive = listar_empresas_drive(drive)
@@ -420,8 +440,10 @@ def sincronizar_relatorios_drive():
                 relatorio["empresas_com_sucesso"],
             )
             total_sucessos = len(relatorio["empresas_com_sucesso"])
-            relatorio["resumo"]["sucessos"] = total_sucessos
-            relatorio["resumo"]["certas"] = total_sucessos
+            relatorio["resumo"]["sucessos"] = max(
+                relatorio["resumo"]["sucessos"], total_sucessos
+            )
+            relatorio["resumo"]["certas"] = relatorio["resumo"]["sucessos"]
         return relatorio
 
 
@@ -429,9 +451,9 @@ def sincronizar_relatorios_drive():
 def relatorio_certificados_vencidos():
     try:
         relatorio = sincronizar_relatorios_drive()
-        sem_certificado = _carregar_empresas_sem_certificado()
+        sem_certificado, maior_sem_certificado = _carregar_empresas_sem_certificado()
         relatorio["empresas_sem_certificado"] = sem_certificado
-        relatorio["resumo"]["sem_certificado"] = len(sem_certificado)
+        relatorio["resumo"]["sem_certificado"] = maior_sem_certificado
         return jsonify(relatorio), 200
     except FileNotFoundError as erro:
         return jsonify({"erro": str(erro)}), 404

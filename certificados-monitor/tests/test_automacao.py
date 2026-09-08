@@ -214,6 +214,46 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertFalse(status["executando"])
         self.assertIsNone(status["duracao_segundos"])
         self.assertEqual(status["resumo_envios"]["email_enviados"], 0)
+        self.assertEqual(set(status["automacoes"]), {"certificados"})
+        self.assertEqual(
+            status["automacoes"]["certificados"],
+            {
+                "nome": "Certificados",
+                "estado": "aguardando",
+                "codigo_saida": None,
+                "logs": [],
+            },
+        )
+
+    def test_status_informa_resultado_individual_dos_motores(self):
+        executor = ExecutorAutomacao(
+            pastas_motores=executor_sieg_automacao.pastas_motores,
+            nomes_motores={
+                "certificados_vencidos": "Certificados vencidos (SIEG)",
+                "auto_nc": "Empresas sem certificado (Auto_NC)",
+            },
+        )
+        executor._resultados_motores = {
+            "certificados_vencidos": 0,
+            "auto_nc": 1,
+        }
+        executor._registrar_motor("auto_nc", "Falha no cadastro")
+
+        automacoes = executor.status()["automacoes"]
+
+        self.assertEqual(set(automacoes), {"certificados_vencidos", "auto_nc"})
+        self.assertEqual(
+            automacoes["certificados_vencidos"]["nome"],
+            "Certificados vencidos (SIEG)",
+        )
+        self.assertEqual(automacoes["certificados_vencidos"]["estado"], "concluida")
+        self.assertEqual(automacoes["certificados_vencidos"]["codigo_saida"], 0)
+        self.assertEqual(
+            automacoes["auto_nc"]["nome"], "Empresas sem certificado (Auto_NC)"
+        )
+        self.assertEqual(automacoes["auto_nc"]["estado"], "falhou")
+        self.assertEqual(automacoes["auto_nc"]["codigo_saida"], 1)
+        self.assertEqual(automacoes["auto_nc"]["logs"], ["Falha no cadastro"])
 
     def test_configura_os_dois_motores_de_automacao(self):
         pasta_repositorio = Path(__file__).resolve().parents[2]

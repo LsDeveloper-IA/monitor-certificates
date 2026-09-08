@@ -19,7 +19,7 @@ async function carregarEmpresasSemCertificado() {
   );
   try {
     const conteudo = JSON.parse(await readFile(arquivo, 'utf-8'));
-    if (!Array.isArray(conteudo.empresas)) return [];
+    if (!Array.isArray(conteudo.empresas)) return { empresas: [], maiorQuantidade: 0 };
 
     const unicas = new Map<string, EmpresaSemCertificado>();
     for (const empresa of conteudo.empresas as EmpresaSemCertificado[]) {
@@ -32,9 +32,16 @@ async function carregarEmpresasSemCertificado() {
         motivo: empresa.motivo || 'Empresa sem certificado cadastrado no SIEG',
       });
     }
-    return [...unicas.values()];
+    const empresas = [...unicas.values()];
+    const maiorQuantidade = Math.max(
+      empresas.length,
+      Number.isFinite(Number(conteudo.maior_quantidade))
+        ? Math.max(0, Number(conteudo.maior_quantidade))
+        : 0,
+    );
+    return { empresas, maiorQuantidade };
   } catch {
-    return [];
+    return { empresas: [], maiorQuantidade: 0 };
   }
 }
 
@@ -46,11 +53,14 @@ export async function GET() {
     const relatorio = await resposta.json();
     if (!resposta.ok) return NextResponse.json(relatorio, { status: resposta.status });
 
-    const empresas = await carregarEmpresasSemCertificado();
+    const { empresas, maiorQuantidade } = await carregarEmpresasSemCertificado();
     relatorio.empresas_sem_certificado = empresas;
     relatorio.resumo = {
       ...(relatorio.resumo || {}),
-      sem_certificado: empresas.length,
+      sem_certificado: Math.max(
+        Number(relatorio.resumo?.sem_certificado || 0),
+        maiorQuantidade,
+      ),
     };
     return NextResponse.json(relatorio);
   } catch {

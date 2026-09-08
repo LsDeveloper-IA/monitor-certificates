@@ -107,7 +107,9 @@ registros/
 
 O `checkpoint.json` registra cada CNPJ somente depois que todo o fluxo da empresa termina com sucesso. Se o programa cair e for iniciado novamente no mesmo dia, esses CNPJs serão pulados. No dia seguinte, um novo checkpoint diário começa automaticamente.
 
-Depois de preencher a senha do certificado, a automação espera por até 30 segundos por uma mensagem explícita do SIEG. Se o candidato for rejeitado, ela volta à tabela, reabre a mesma empresa e testa o próximo candidato de alta similaridade. A empresa só é registrada como falha depois que todos os candidatos forem rejeitados ou quando nenhuma confirmação aparecer.
+Depois de preencher a senha do certificado, a automação espera por até 30 segundos por uma mensagem explícita do SIEG. Somente uma rejeição explícita permite voltar à tabela e testar o próximo candidato de alta similaridade. Se a validação ficar inconclusiva ou ocorrer uma falha de navegação após o envio, a empresa recebe esse motivo no relatório e nenhum outro certificado é enviado nessa tentativa, pois a atualização pode já ter sido salva.
+
+As opções do assistente são localizadas pela estrutura do campo entre os modais visíveis, sem depender da posição do modal no `body`. O sucesso e o checkpoint continuam sendo registrados somente depois de concluir todas as etapas e confirmar a finalização.
 
 O arquivo `resumo_*.txt` contém totais, CNPJs, nomes, motivos das falhas e caminhos das respectivas evidências.
 

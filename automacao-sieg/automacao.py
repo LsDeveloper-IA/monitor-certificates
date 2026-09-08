@@ -1,4 +1,6 @@
 import os
+import re
+import time
 from playwright.sync_api import sync_playwright
 
 from config import ARQUIVO_ENV, DRIVE_ROOT_FOLDER_ID
@@ -14,6 +16,7 @@ from persistencia import (
     registrar_cnpj_processado,
 )
 from sieg_service import (
+    CertificadoRejeitadoError,
     aguardar_validacao_senha_certificado,
     alterar_paginacao_para_200,
     aplicar_filtro_vencidos,
@@ -25,6 +28,7 @@ from sieg_service import (
     extrair_dados_linha,
     forcar_fechamento_modais,
     localizar_linha_por_cnpj,
+    obter_rejeicao_certificado,
     preencher_uf_ce,
     realizar_login_sieg,
     voltar_para_tabela_empresas,
@@ -32,21 +36,40 @@ from sieg_service import (
 from utilitarios import extrair_cnpj, normalizar_texto
 
 
-def garantir_input_ativo(page, xpath, descricao, xpath_alternativo=None):
+def garantir_input_ativo(
+    page, xpath, descricao, xpath_alternativo=None, *,
+    verificar_rejeicao=False, timeout_ms=15000,
+):
     """Marca um checkbox/radio apenas quando ele ainda não estiver selecionado."""
-    campo = page.locator(f"xpath={xpath}")
-    try:
-        campo.wait_for(state="visible", timeout=10000)
-    except Exception:
-        if not xpath_alternativo:
-            raise
-        campo = page.locator(f"xpath={xpath_alternativo}").last
-        campo.wait_for(state="visible", timeout=5000)
-    if not campo.is_checked():
-        campo.check(force=True)
-        print(f"  ✅ Opção ativada: {descricao}")
-    else:
-        print(f"  ✓ Opção já estava ativa: {descricao}")
+    # O índice do modal no body muda quando o SIEG abre/fecha outros diálogos.
+    caminhos = list(dict.fromkeys(
+        re.sub(r"^/html/body/div\[\d+\]", "/html/body/div", caminho)
+        for caminho in (xpath, xpath_alternativo) if caminho
+    ))
+    campos = page.locator("xpath=" + " | ".join(caminhos))
+    limite = time.monotonic() + timeout_ms / 1000
+    while time.monotonic() < limite:
+        if verificar_rejeicao:
+            rejeicao = obter_rejeicao_certificado(page)
+            if rejeicao:
+                raise CertificadoRejeitadoError(rejeicao)
+
+        visiveis = [campo for campo in campos.all() if campo.is_visible()]
+        if len(visiveis) == 1:
+            campo = visiveis[0]
+            if campo.is_checked():
+                print(f"  ✓ Opção já estava ativa: {descricao}")
+                return
+            if campo.is_enabled():
+                campo.check(force=True, timeout=5000)
+                print(f"  ✅ Opção ativada: {descricao}")
+                return
+        page.wait_for_timeout(200)
+
+    raise TimeoutError(
+        f"Não foi possível identificar uma única opção disponível: {descricao}. "
+        "A tela após o upload não chegou ao estado esperado."
+    )
 
 
 def clicar_salvar_e_continuar(page, etapa):
@@ -99,6 +122,65 @@ def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
         raise RuntimeError(
             "Botão de atualização do certificado não encontrado"
         )
+
+
+def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
+    """Envia um candidato; apenas uma rejeição explícita permite tentar outro."""
+    preparar_tela_upload_certificado(page, cnpj, nome_empresa)
+    campo_file = page.locator(
+        "[role='dialog']:visible input[type='file'], "
+        "div[class*='modal']:visible input[type='file'], "
+        "div[class*='drawer']:visible input[type='file']"
+    ).last
+    campo_file.wait_for(state="attached", timeout=15000)
+    campo_file.set_input_files({
+        "name": candidato["arquivo_nome"],
+        "mimeType": "application/x-pkcs12",
+        "buffer": candidato["pfx_bytes"],
+    })
+
+    campo_pass = page.locator(
+        "[role='dialog']:visible input[type='password']:visible, "
+        "div[class*='modal']:visible input[type='password']:visible, "
+        "div[class*='drawer']:visible input[type='password']:visible"
+    ).last
+    campo_pass.wait_for(state="visible", timeout=15000)
+    campo_pass.fill(candidato["senha"])
+    campo_pass.dispatch_event("input")
+    senha_aceita, mensagem = aguardar_validacao_senha_certificado(page)
+    if senha_aceita is False:
+        raise CertificadoRejeitadoError(mensagem)
+    if senha_aceita is not True:
+        raise RuntimeError(
+            "Upload enviado, mas a validação do SIEG ficou inconclusiva: "
+            f"{mensagem}. Nenhum outro candidato será enviado nesta tentativa."
+        )
+
+    print(f"  ✅ Senha confirmada pelo SIEG: {mensagem}")
+    try:
+        clicar_salvar_e_continuar(page, "certificado")
+        garantir_input_ativo(
+            page,
+            "/html/body/div[6]/div/div[2]/section[2]/"
+            "div/div[3]/div[2]/div[1]/div[2]/input",
+            "primeira opção da etapa",
+            verificar_rejeicao=True,
+        )
+        garantir_input_ativo(
+            page,
+            "/html/body/div[6]/div/div[2]/section[2]/"
+            "div/div[3]/div[2]/div[2]/div[2]/label[1]/input",
+            "segunda opção da etapa",
+            verificar_rejeicao=True,
+        )
+    except CertificadoRejeitadoError:
+        raise
+    except Exception as erro:
+        raise RuntimeError(
+            "Falha de navegação após enviar o certificado e validar a senha: "
+            f"{erro}. A atualização pode já ter sido salva no SIEG; "
+            "nenhum outro candidato será enviado nesta tentativa."
+        ) from erro
 
 
 def executar_automacao_sieg():
@@ -259,80 +341,26 @@ def executar_automacao_sieg():
                         f"{candidato['arquivo_nome']} "
                         f"({candidato['similaridade']:.0%})"
                     )
-                    preparar_tela_upload_certificado(
-                        page, cnpj, nome_empresa
-                    )
-
-                    campo_file = page.locator(
-                        "[role='dialog']:visible input[type='file'], "
-                        "div[class*='modal']:visible input[type='file'], "
-                        "div[class*='drawer']:visible input[type='file']"
-                    ).last
-                    campo_file.wait_for(state="attached", timeout=15000)
-                    campo_file.set_input_files({
-                        'name': candidato['arquivo_nome'],
-                        'mimeType': 'application/x-pkcs12',
-                        'buffer': candidato['pfx_bytes'],
-                    })
-
-                    campo_pass = page.locator(
-                        "[role='dialog']:visible input[type='password']:visible, "
-                        "div[class*='modal']:visible input[type='password']:visible, "
-                        "div[class*='drawer']:visible input[type='password']:visible"
-                    ).last
-                    campo_pass.wait_for(state="visible", timeout=15000)
-                    campo_pass.fill(candidato['senha'])
-                    campo_pass.dispatch_event("input")
-                    senha_aceita, mensagem_validacao = (
-                        aguardar_validacao_senha_certificado(page)
-                    )
-                    if senha_aceita:
+                    try:
+                        enviar_certificado_candidato(
+                            page, candidato, cnpj, nome_empresa
+                        )
+                    except CertificadoRejeitadoError as rejeicao:
+                        motivo_rejeicao = f"{candidato['pasta_nome']}: {rejeicao}"
+                        rejeicoes.append(motivo_rejeicao)
                         print(
-                            "  ✅ Senha confirmada pelo SIEG: "
-                            f"{mensagem_validacao}"
+                            "  ⚠️ Candidato rejeitado pelo SIEG; "
+                            "voltando para testar o próximo."
                         )
-                        try:
-                            # A aceitação definitiva só ocorre quando o SIEG
-                            # permite avançar para a etapa seguinte. É nesse
-                            # avanço que ele também pode rejeitar o titular.
-                            clicar_salvar_e_continuar(page, "certificado")
-                            garantir_input_ativo(
-                                page,
-                                "/html/body/div[6]/div/div[2]/section[2]/"
-                                "div/div[3]/div[2]/div[1]/div[2]/input",
-                                "primeira opção da etapa",
+                        if not voltar_para_tabela_empresas(page):
+                            raise RuntimeError(
+                                "O certificado foi rejeitado, mas não foi possível "
+                                "voltar com segurança à tabela"
                             )
-                            garantir_input_ativo(
-                                page,
-                                "/html/body/div[6]/div/div[2]/section[2]/"
-                                "div/div[3]/div[2]/div[2]/div[2]/"
-                                "label[1]/input",
-                                "segunda opção da etapa",
-                            )
-                            certificado_aceito = candidato
-                            print(
-                                "  ✅ Certificado aceito e próxima etapa aberta."
-                            )
-                            break
-                        except Exception as erro_avanco:
-                            mensagem_validacao = (
-                                "o SIEG não permitiu avançar após o upload: "
-                                f"{erro_avanco}"
-                            )
-
-                    motivo_rejeicao = (
-                        f"{candidato['pasta_nome']}: {mensagem_validacao}"
-                    )
-                    rejeicoes.append(motivo_rejeicao)
-                    print(
-                        "  ⚠️ Candidato rejeitado pelo SIEG; "
-                        "voltando para testar o próximo."
-                    )
-                    if not voltar_para_tabela_empresas(page):
-                        raise RuntimeError(
-                            "O certificado foi rejeitado, mas não foi possível "
-                            "voltar com segurança à tabela"
-                        )
+                    else:
+                        certificado_aceito = candidato
+                        print("  ✅ Certificado aceito e próxima etapa aberta.")
+                        break
 
                 if certificado_aceito is None:
                     if total_tentativas == 0:
