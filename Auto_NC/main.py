@@ -640,7 +640,7 @@ def executar_automacao_sieg_cadastro_a1():
         # LOOP DE PÁGINAS (PAGINAÇÃO)
         # ---------------------------------------------------------
         pagina_atual = 1
-        
+
         while True:
             print(f"\n==========================================")
             print(f"📄 INICIANDO PROCESSAMENTO DA PÁGINA {pagina_atual}")
