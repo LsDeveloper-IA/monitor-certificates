@@ -797,38 +797,66 @@ def confirmar_linha_empresa(linha, cnpj, nome_empresa):
         return False
 
 
-def aguardar_validacao_senha_certificado(page, timeout_ms=30000):
-    """Espera uma mensagem explícita de sucesso ou erro após informar a senha."""
-    seletores = (
-        "[role='alert']:visible, [class*='toast']:visible, "
-        "[class*='notification']:visible, [class*='message']:visible, "
-        "div[class*='modal']:visible, div[class*='drawer']:visible"
-    )
+class CertificadoRejeitadoError(RuntimeError):
+    """O SIEG exibiu uma rejeição explícita do certificado ou de sua senha."""
 
+
+def _script_validacao_certificado():
+    """Detector compartilhado de mensagens; não comprova persistência do upload."""
+    return r"""
+        ({somente_erros = false} = {}) => {
+            const seletor = '[role="alert"], [role="dialog"], [class*="toast"], '
+                + '[class*="notification"], [class*="message"], '
+                + 'div[class*="modal"], div[class*="drawer"]';
+            const erro = /(senha.{0,40}(incorret|invalid|errad|nao confere)|certificado.{0,80}(invalid|incompativ|rejeitad|nao (pertence|corresponde|confere))|(titular|cnpj|cpf).{0,100}(diverg|diferent|incompativ|nao (correspond|pertenc|coincid|confere|e o mesmo))|(incompativel|divergente|diferente).{0,50}(titular|cnpj|cpf))/i;
+            const sucesso = /(senha\s+(?:(?:do certificado|informada|digitada|esta|e|foi)\s+)*(correta|valida(?:da|do)?)\b|certificado\s+(?:(?:digital|foi|esta|e)\s+)*(carregado|importado|atualizado|valido)\b|sucesso.{0,50}certificado)/i;
+            let confirmacao = null;
+            for (const elemento of document.querySelectorAll(seletor)) {
+                const estilo = getComputedStyle(elemento);
+                const caixa = elemento.getBoundingClientRect();
+                if (estilo.display === 'none' || estilo.visibility === 'hidden'
+                    || caixa.width === 0 || caixa.height === 0) continue;
+                const texto = (elemento.innerText || '').replace(/\s+/g, ' ').trim();
+                const normalizado = texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+                const erroEncontrado = normalizado.match(erro);
+                if (erroEncontrado) return {
+                    sucesso: false,
+                    mensagem: texto.slice(erroEncontrado.index, erroEncontrado.index + erroEncontrado[0].length)
+                };
+                if (!somente_erros && !confirmacao) {
+                    const sucessoEncontrado = normalizado.match(sucesso);
+                    if (sucessoEncontrado) confirmacao = {
+                        sucesso: true,
+                        mensagem: texto.slice(sucessoEncontrado.index, sucessoEncontrado.index + sucessoEncontrado[0].length)
+                    };
+                }
+            }
+            // Percorre todos os avisos antes de aceitar uma mensagem de senha válida.
+            return confirmacao || false;
+        }
+    """
+
+
+def obter_rejeicao_certificado(page):
+    """Retorna somente rejeição explícita visível, nunca timeout ou vencimento."""
+    resultado = page.evaluate(
+        _script_validacao_certificado(), {"somente_erros": True}
+    )
+    return resultado["mensagem"] if resultado else None
+
+
+def aguardar_validacao_senha_certificado(page, timeout_ms=30000):
+    """Retorna (True/False/None, mensagem): aceita, rejeitada ou inconclusiva."""
     print("  ⏳ Aguardando a confirmação da senha do certificado...")
     try:
         resultado = page.wait_for_function(
-            r"""
-            (seletor) => {
-                const erro = /(senha.{0,40}(incorret|inválid|invalid|errad)|certificado.{0,50}(inválid|invalid|erro|falha)|(erro|falha).{0,50}(senha|certificado))/i;
-                const sucesso = /(senha.{0,40}(corret|válid|valid)|certificado.{0,50}(carregad|importad|atualizad|válid|valid|sucesso)|sucesso.{0,50}certificado)/i;
-                for (const elemento of document.querySelectorAll(seletor)) {
-                    const estilo = getComputedStyle(elemento);
-                    const caixa = elemento.getBoundingClientRect();
-                    if (estilo.display === 'none' || estilo.visibility === 'hidden'
-                        || caixa.width === 0 || caixa.height === 0) continue;
-                    const texto = (elemento.innerText || '').replace(/\s+/g, ' ').trim();
-                    const erroEncontrado = texto.match(erro);
-                    if (erroEncontrado) return { sucesso: false, mensagem: erroEncontrado[0] };
-                    const sucessoEncontrado = texto.match(sucesso);
-                    if (sucessoEncontrado) return { sucesso: true, mensagem: sucessoEncontrado[0] };
-                }
-                return false;
-            }
-            """,
-            arg=seletores.replace(":visible", ""),
+            _script_validacao_certificado(),
+            arg={"somente_erros": False},
             timeout=timeout_ms,
         ).json_value()
         return resultado["sucesso"], resultado["mensagem"]
     except Exception:
-        return False, f"nenhuma mensagem de sucesso ou erro apareceu em {timeout_ms // 1000}s"
+        return None, (
+            "validação inconclusiva: não foi possível obter uma mensagem "
+            f"explícita de sucesso ou rejeição em {timeout_ms / 1000:g}s"
+        )

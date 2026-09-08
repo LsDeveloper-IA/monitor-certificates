@@ -83,8 +83,21 @@ def normalizar_texto(texto):
 def salvar_empresas_sem_certificado(empresas, servico_drive=None):
     """Disponibiliza no painel a lista parcial da execução atual."""
     unicas = {normalizar_texto(item["nome"]): item for item in empresas}
+    maior_quantidade = len(unicas)
+    try:
+        relatorio_anterior = json.loads(
+            ARQUIVO_RELATORIO_SEM_CERTIFICADO.read_text(encoding="utf-8")
+        )
+        maior_quantidade = max(
+            maior_quantidade,
+            int(relatorio_anterior.get("maior_quantidade", 0)),
+            len(relatorio_anterior.get("empresas", [])),
+        )
+    except (FileNotFoundError, OSError, ValueError, TypeError):
+        pass
     conteudo = {
         "atualizado_em": datetime.now().isoformat(),
+        "maior_quantidade": maior_quantidade,
         "empresas": sorted(unicas.values(), key=lambda item: item["nome"]),
     }
     ARQUIVO_RELATORIO_SEM_CERTIFICADO.parent.mkdir(parents=True, exist_ok=True)
@@ -614,7 +627,7 @@ def executar_automacao_sieg_cadastro_a1():
     with sync_playwright() as p:
         # Evita que cliques, preenchimentos e selecoes ocorram rapido demais.
         browser = p.chromium.launch(
-            headless=False,
+            headless=True,
             slow_mo=PAUSA_CADA_ACAO_MS,
         )
         page = browser.new_page()
@@ -694,6 +707,15 @@ def executar_automacao_sieg_cadastro_a1():
                                 break
 
                     if not nome_empresa:
+                        continue
+
+                    # Confere "Ativo na Sieg" na td[7] da empresa atual.
+                    campo_ativo_sieg = linha.locator("xpath=./td[7]/input")
+                    if campo_ativo_sieg.count() != 1 or not campo_ativo_sieg.is_checked():
+                        print(
+                            f"⏩ PULANDO: Empresa '{nome_empresa}' está com "
+                            "'Ativo na Sieg' desmarcado ou indisponível."
+                        )
                         continue
 
                     # Verifica apenas a coluna de certificado. Outras colunas
@@ -855,8 +877,11 @@ def executar_automacao_sieg_cadastro_a1():
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(TIME_CURTO)
 
-            # Localiza o botão da setinha de 'Próxima página' no rodapé
-            btn_proxima_pagina = page.locator("button.btn-next, .pagination-next, button:has(svg[data-icon='chevron-right']), button[aria-label='Next page']").first
+            # Localiza a seta de 'Próxima página' pelo XPath da paginação.
+            btn_proxima_pagina = page.locator(
+                "xpath=//*[@id='app']/main/section/div/section/section[2]/"
+                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[1]/button[7]"
+            )
 
             if btn_proxima_pagina.is_visible() and btn_proxima_pagina.is_enabled():
                 print("➡️ Clicando na seta para ir para a PRÓXIMA PÁGINA...")
