@@ -280,8 +280,8 @@ def executar_automacao():
 @automacao_bp.route("/automacao/parar", methods=["POST"])
 def parar_automacao():
     if not executor_automacao.parar():
-        return jsonify({"erro": "Nenhuma automacao SIEG em execucao"}), 409
-    return jsonify({"mensagem": "Automacao SIEG interrompida"}), 200
+        return jsonify({"erro": "Nenhuma automacao de certificados em execucao"}), 409
+    return jsonify({"mensagem": "Automacao de certificados interrompida"}), 200
 
 
 @automacao_bp.route("/automacao/sieg-status", methods=["GET"])

@@ -1,0 +1,5 @@
+.env
+credentials.json
+token.json
+empresas_sem_certificado.json
+*.tmp

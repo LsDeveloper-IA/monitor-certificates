@@ -132,6 +132,7 @@ export default function ConfigModal({
     erro: null as string | null,
     atualizou_excel: false,
     logs: [] as string[],
+    automacoes: {} as Record<string, { nome: string; logs: string[] }>,
   });
   const [historicoExecucoes, setHistoricoExecucoes] = useState<HistoricoExecucao[]>([]);
   const execucaoEmAndamentoRef = useRef(false);
@@ -1091,10 +1092,17 @@ export default function ConfigModal({
                     <p><span className="font-medium">Duracao:</span> {formatarDuracao(automacaoStatus.duracao_segundos)}</p>
                   </div>
                 )}
-                {automacaoStatus.logs.length > 0 && (
-                  <pre className="max-h-48 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
-                    {automacaoStatus.logs.slice(-30).join('\n')}
-                  </pre>
+                {Object.keys(automacaoStatus.automacoes).length > 0 && (
+                  <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+                    {Object.entries(automacaoStatus.automacoes).map(([id, automacao]) => (
+                      <div key={id} className="min-w-0 rounded-lg border border-gray-200 p-3">
+                        <p className="mb-2 text-sm font-semibold text-gray-800">{automacao.nome}</p>
+                        <pre className="h-52 overflow-y-auto whitespace-pre-wrap rounded-lg bg-gray-900 p-3 text-xs text-gray-100">
+                          {automacao.logs.length ? automacao.logs.slice(-30).join('\n') : 'Aguardando início...'}
+                        </pre>
+                      </div>
+                    ))}
+                  </div>
                 )}
               </div>
 

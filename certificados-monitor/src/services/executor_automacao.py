@@ -34,11 +34,28 @@ class ExecutorAutomacao:
         ),
     }
 
-    def __init__(self, arquivo_historico=None, pasta_motor=None):
+    def __init__(
+        self,
+        arquivo_historico=None,
+        pasta_motor=None,
+        pastas_motores=None,
+        nomes_motores=None,
+    ):
         self._lock = threading.Lock()
         self._processo = None
+        self._processos = {}
         self._executando = False
         self._logs = deque(maxlen=300)
+        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
+        self._pastas_motores_personalizadas = (
+            {nome: Path(pasta) for nome, pasta in pastas_motores.items()}
+            if pastas_motores
+            else None
+        )
+        self._nomes_motores = dict(nomes_motores or {})
+        self._logs_por_automacao = {
+            nome: deque(maxlen=300) for nome in self.pastas_motores
+        }
         self._inicio = None
         self._fim = None
         self._codigo_saida = None
@@ -53,7 +70,6 @@ class ExecutorAutomacao:
         self._etapa = "Aguardando nova execucao"
         self._progresso = 0
         self._arquivo_log_execucao = None
-        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
@@ -76,10 +92,20 @@ class ExecutorAutomacao:
         }
 
     @property
-    def pasta_motor(self):
+    def pastas_motores(self):
+        if self._pastas_motores_personalizadas:
+            return dict(self._pastas_motores_personalizadas)
         if self._pasta_motor_personalizada:
-            return self._pasta_motor_personalizada
-        return Path(__file__).resolve().parents[2] / "automation_engine"
+            return {"principal": self._pasta_motor_personalizada}
+        return {
+            "certificados": Path(__file__).resolve().parents[2]
+            / "automation_engine"
+        }
+
+    @property
+    def pasta_motor(self):
+        """Mantido para compatibilidade com integrações antigas."""
+        return next(iter(self.pastas_motores.values()))
 
     @property
     def arquivo_env(self):
@@ -232,6 +258,8 @@ class ExecutorAutomacao:
                 raise RuntimeError("A automacao ja esta em execucao")
             self._executando = True
             self._logs.clear()
+            for logs in self._logs_por_automacao.values():
+                logs.clear()
             self._inicio = datetime.now()
             self._fim = None
             self._codigo_saida = None
@@ -277,18 +305,19 @@ class ExecutorAutomacao:
 
     def parar(self):
         with self._lock:
-            processo = self._processo
-            if not self._executando or processo is None:
+            processos = list(self._processos.values())
+            if not self._executando or not processos:
                 return False
             self._interrompida = True
-            if os.name == "nt":
-                subprocess.run(
-                    ["taskkill", "/PID", str(processo.pid), "/T", "/F"],
-                    capture_output=True,
-                    check=False,
-                )
-            else:
-                processo.terminate()
+            for processo in processos:
+                if os.name == "nt":
+                    subprocess.run(
+                        ["taskkill", "/PID", str(processo.pid), "/T", "/F"],
+                        capture_output=True,
+                        check=False,
+                    )
+                else:
+                    processo.terminate()
         return True
 
     def _executar_processo(
@@ -304,15 +333,34 @@ class ExecutorAutomacao:
             escopo_notificacoes_teste,
             forcar_reenvio_teste,
         )
-        try:
+
+        # A Auto_NC nova usa as mesmas credenciais já configuradas para a
+        # automação de certificados vencidos, sem criar outra cópia do .env.
+        def executar_motor(identificador, pasta):
+            if not (pasta / "main.py").exists():
+                self._registrar_motor(
+                    identificador, f"ERRO: motor não encontrado em {pasta}"
+                )
+                return -1
+            ambiente_motor = ambiente.copy()
+            arquivo_env_motor = pasta / ".env"
+            if arquivo_env_motor.exists():
+                for linha in arquivo_env_motor.read_text(encoding="utf-8").splitlines():
+                    linha = linha.strip()
+                    if not linha or linha.startswith("#") or "=" not in linha:
+                        continue
+                    linha = linha.removeprefix("$env:")
+                    nome, valor = linha.split("=", 1)
+                    ambiente_motor[nome.strip()] = valor.strip().strip("\"'")
             flags = 0
             if os.name == "nt":
-                flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+                # A saída dos dois motores é exibida lado a lado no painel web.
+                flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
             processo = subprocess.Popen(
                 [sys.executable, "main.py"],
-                cwd=self.pasta_motor,
-                env=ambiente,
+                cwd=pasta,
+                env=ambiente_motor,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
@@ -322,15 +370,41 @@ class ExecutorAutomacao:
                 start_new_session=(os.name != "nt"),
             )
             with self._lock:
+                self._processos[identificador] = processo
                 self._processo = processo
             if processo.stdout:
                 for linha in processo.stdout:
-                    self._registrar(linha)
-            codigo = processo.wait()
+                    self._registrar_motor(identificador, linha)
+            return processo.wait()
+
+        try:
+            resultados = {}
+            threads = []
+
+            def acompanhar(identificador, pasta):
+                try:
+                    resultados[identificador] = executar_motor(identificador, pasta)
+                except Exception as erro:
+                    resultados[identificador] = -1
+                    self._registrar_motor(identificador, f"ERRO: {erro}")
+
+            for identificador, pasta in self.pastas_motores.items():
+                thread = threading.Thread(
+                    target=acompanhar,
+                    args=(identificador, pasta),
+                    daemon=True,
+                )
+                threads.append(thread)
+                thread.start()
+            for thread in threads:
+                thread.join()
+
+            codigo = 0 if resultados and all(codigo == 0 for codigo in resultados.values()) else 1
             with self._lock:
                 self._codigo_saida = codigo
                 if codigo != 0 and not self._interrompida:
-                    self._erro = f"Automacao encerrada com codigo {codigo}"
+                    falhas = [nome for nome, valor in resultados.items() if valor != 0]
+                    self._erro = "Falha em: " + ", ".join(falhas)
                     self._etapa = "Execucao encerrada com erro"
                 else:
                     self._etapa = "Processamento concluido"
@@ -345,14 +419,31 @@ class ExecutorAutomacao:
             with self._lock:
                 self._fim = datetime.now()
                 self._processo = None
+                self._processos.clear()
                 self._executando = False
             self._registrar_historico()
+
+    def _registrar_motor(self, identificador, mensagem):
+        texto = str(mensagem).rstrip()
+        if texto:
+            with self._lock:
+                self._logs_por_automacao[identificador].append(texto)
+            self._registrar(f"[{identificador}] {texto}")
 
     def status(self):
         with self._lock:
             return {
                 **self._resumo_sem_logs(),
                 "logs": list(self._logs),
+                "automacoes": {
+                    identificador: {
+                        "nome": self._nomes_motores.get(
+                            identificador, identificador.replace("_", " ").title()
+                        ),
+                        "logs": list(logs),
+                    }
+                    for identificador, logs in self._logs_por_automacao.items()
+                },
             }
 
     def historico(self):
@@ -363,5 +454,13 @@ class ExecutorAutomacao:
 executor_automacao = ExecutorAutomacao()
 executor_sieg_automacao = ExecutorAutomacao(
     arquivo_historico=Path(__file__).resolve().parents[2] / "runtime" / "historico_sieg.json",
-    pasta_motor=Path(__file__).resolve().parents[3] / "automacao-sieg",
+    pastas_motores={
+        "certificados_vencidos": Path(__file__).resolve().parents[3]
+        / "automacao-sieg",
+        "auto_nc": Path(__file__).resolve().parents[3] / "Auto_NC",
+    },
+    nomes_motores={
+        "certificados_vencidos": "Certificados vencidos (SIEG)",
+        "auto_nc": "Empresas sem certificado (Auto_NC)",
+    },
 )
