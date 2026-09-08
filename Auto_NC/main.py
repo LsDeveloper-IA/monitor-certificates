@@ -627,7 +627,7 @@ def executar_automacao_sieg_cadastro_a1():
     with sync_playwright() as p:
         # Evita que cliques, preenchimentos e selecoes ocorram rapido demais.
         browser = p.chromium.launch(
-            headless=False,
+            headless=True,
             slow_mo=PAUSA_CADA_ACAO_MS,
         )
         page = browser.new_page()

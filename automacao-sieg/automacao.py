@@ -198,7 +198,7 @@ def executar_automacao_sieg():
     print(f"✅ {indice_drive['total']} pasta(s) indexada(s) em uma única consulta.")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=False, slow_mo=300)
+        browser = p.chromium.launch(headless=True, slow_mo=300)
         page = browser.new_page()
         page.set_default_navigation_timeout(100000)
 
