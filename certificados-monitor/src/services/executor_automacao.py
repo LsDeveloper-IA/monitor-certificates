@@ -34,15 +34,27 @@ class ExecutorAutomacao:
         ),
     }
 
-    def __init__(self, arquivo_historico=None, pasta_motor=None):
+    def __init__(
+        self,
+        arquivo_historico=None,
+        pasta_motor=None,
+        pastas_motores=None,
+        nomes_motores=None,
+    ):
         self._lock = threading.Lock()
         self._processo = None
         self._processos = {}
         self._executando = False
         self._logs = deque(maxlen=300)
+        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
+        self._pastas_motores_personalizadas = (
+            {nome: Path(pasta) for nome, pasta in pastas_motores.items()}
+            if pastas_motores
+            else None
+        )
+        self._nomes_motores = dict(nomes_motores or {})
         self._logs_por_automacao = {
-            "certificados_vencidos": deque(maxlen=300),
-            "auto_nc": deque(maxlen=300),
+            nome: deque(maxlen=300) for nome in self.pastas_motores
         }
         self._inicio = None
         self._fim = None
@@ -58,7 +70,6 @@ class ExecutorAutomacao:
         self._etapa = "Aguardando nova execucao"
         self._progresso = 0
         self._arquivo_log_execucao = None
-        self._pasta_motor_personalizada = Path(pasta_motor) if pasta_motor else None
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
@@ -82,18 +93,19 @@ class ExecutorAutomacao:
 
     @property
     def pastas_motores(self):
+        if self._pastas_motores_personalizadas:
+            return dict(self._pastas_motores_personalizadas)
         if self._pasta_motor_personalizada:
-            return {"certificados_vencidos": self._pasta_motor_personalizada}
-        raiz = Path(__file__).resolve().parents[3]
+            return {"principal": self._pasta_motor_personalizada}
         return {
-            "certificados_vencidos": raiz / "automacao-sieg",
-            "auto_nc": raiz / "Auto_NC",
+            "certificados": Path(__file__).resolve().parents[2]
+            / "automation_engine"
         }
 
     @property
     def pasta_motor(self):
         """Mantido para compatibilidade com integrações antigas."""
-        return self.pastas_motores["certificados_vencidos"]
+        return next(iter(self.pastas_motores.values()))
 
     @property
     def arquivo_env(self):
@@ -424,14 +436,13 @@ class ExecutorAutomacao:
                 **self._resumo_sem_logs(),
                 "logs": list(self._logs),
                 "automacoes": {
-                    "certificados_vencidos": {
-                        "nome": "Certificados vencidos",
-                        "logs": list(self._logs_por_automacao["certificados_vencidos"]),
-                    },
-                    "auto_nc": {
-                        "nome": "Auto_NC (SIEG)",
-                        "logs": list(self._logs_por_automacao["auto_nc"]),
-                    },
+                    identificador: {
+                        "nome": self._nomes_motores.get(
+                            identificador, identificador.replace("_", " ").title()
+                        ),
+                        "logs": list(logs),
+                    }
+                    for identificador, logs in self._logs_por_automacao.items()
                 },
             }
 
@@ -443,5 +454,13 @@ class ExecutorAutomacao:
 executor_automacao = ExecutorAutomacao()
 executor_sieg_automacao = ExecutorAutomacao(
     arquivo_historico=Path(__file__).resolve().parents[2] / "runtime" / "historico_sieg.json",
-    pasta_motor=Path(__file__).resolve().parents[3] / "automacao-sieg",
+    pastas_motores={
+        "certificados_vencidos": Path(__file__).resolve().parents[3]
+        / "automacao-sieg",
+        "auto_nc": Path(__file__).resolve().parents[3] / "Auto_NC",
+    },
+    nomes_motores={
+        "certificados_vencidos": "Certificados vencidos (SIEG)",
+        "auto_nc": "Empresas sem certificado (Auto_NC)",
+    },
 )

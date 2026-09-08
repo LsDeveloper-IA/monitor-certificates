@@ -78,7 +78,7 @@ export default function CertificadosVencidos() {
   const carregarStatusAutomacao = useCallback(async () => {
     try {
       const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO)?.trim() || '';
-      const resposta = await fetch('/api/automacao/status', {
+      const resposta = await fetch('/api/automacao/sieg-status', {
         headers: chaveAdmin ? { 'X-Admin-Key': chaveAdmin } : {},
         cache: 'no-store',
       });
@@ -114,7 +114,7 @@ export default function CertificadosVencidos() {
         headers['X-Admin-Key'] = chaveAdmin;
       }
 
-      const resposta = await fetch('/api/automacao/executar', {
+      const resposta = await fetch('/api/automacao/sieg-executar', {
         method: 'POST',
         headers,
         body: JSON.stringify({
@@ -147,7 +147,7 @@ export default function CertificadosVencidos() {
   const pararAutomacaoSieg = useCallback(async () => {
     try {
       const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO)?.trim() || '';
-      const resposta = await fetch('/api/automacao/parar', {
+      const resposta = await fetch('/api/automacao/sieg-parar', {
         method: 'POST',
         headers: chaveAdmin ? { 'X-Admin-Key': chaveAdmin } : {},
       });
