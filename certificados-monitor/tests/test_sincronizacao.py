@@ -50,11 +50,15 @@ class SincronizacaoTestCase(unittest.TestCase):
         criada = self.enviar([certificado])
         self.assertEqual(criada.status_code, 200)
         self.assertEqual(criada.json["criados"], 1)
+        self.assertTrue(criada.json["primeira_carga"])
+        self.assertEqual(criada.json["alteracoes_certificados"], [])
 
         certificado["email"] = "novo@example.com"
         atualizada = self.enviar([certificado])
         self.assertEqual(atualizada.status_code, 200)
         self.assertEqual(atualizada.json["atualizados"], 1)
+        self.assertEqual(atualizada.json["inalterados"], 1)
+        self.assertEqual(atualizada.json["alteracoes_certificados"], [])
 
         listagem = self.cliente.get("/api/certificados")
         self.assertEqual(len(listagem.json), 1)
@@ -108,9 +112,33 @@ class SincronizacaoTestCase(unittest.TestCase):
 
         self.assertEqual(resposta.status_code, 200)
         self.assertEqual(resposta.json["desativados"], 1)
+        self.assertEqual(
+            resposta.json["alteracoes_certificados"][0]["tipo"],
+            "renovado",
+        )
         listagem = self.cliente.get("/api/certificados")
         self.assertEqual(len(listagem.json), 1)
         self.assertEqual(listagem.json[0]["arquivo_drive_id"], "atual.pfx")
+        self.assertEqual(
+            resposta.json["alteracoes_certificados"][0]["tipo"], "renovado"
+        )
+
+    def test_informa_quando_o_vencimento_muda(self):
+        certificado = {
+            "empresa": "Empresa Teste",
+            "cnpj": "12.345.678/0001-90",
+            "vencimento": "2027-05-05",
+            "arquivo": "empresa.pfx",
+        }
+        self.enviar([certificado])
+
+        certificado["vencimento"] = "2028-06-10"
+        resposta = self.enviar([certificado])
+
+        alteracao = resposta.json["alteracoes_certificados"][0]
+        self.assertEqual(alteracao["tipo"], "vencimento_alterado")
+        self.assertEqual(alteracao["vencimento_anterior"], "2027-05-05")
+        self.assertEqual(alteracao["vencimento_novo"], "2028-06-10")
 
 
 if __name__ == "__main__":

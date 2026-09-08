@@ -30,9 +30,15 @@ def sincronizar_certificados(itens, substituir_lista=False):
         "criados": 0,
         "atualizados": 0,
         "desativados": 0,
+        "inalterados": 0,
+        "alteracoes_certificados": [],
         "rejeitados": [],
     }
     chaves_recebidas = set()
+    certificados_anteriores = Certificado.query.filter_by(ativo=True).all()
+    primeira_carga = not certificados_anteriores
+    resumo["primeira_carga"] = primeira_carga
+    documentos_anteriores = {item.cpf_cnpj for item in certificados_anteriores}
 
     try:
         for indice, item in enumerate(itens):
@@ -64,11 +70,19 @@ def sincronizar_certificados(itens, substituir_lista=False):
                     certificado = Certificado(cpf_cnpj=documento)
                     db.session.add(certificado)
 
-                certificado.nome_empresa = nome
-                certificado.tipo = "PJ" if len(documento) == 14 else "PF"
-                certificado.data_vencimento = converter_data(
+                vencimento_anterior = (
+                    certificado.data_vencimento.isoformat()
+                    if certificado.data_vencimento
+                    else None
+                )
+                arquivo_anterior = certificado.arquivo_drive_id
+                novo_vencimento = converter_data(
                     item.get("vencimento") or item.get("data_vencimento")
                 )
+
+                certificado.nome_empresa = nome
+                certificado.tipo = "PJ" if len(documento) == 14 else "PF"
+                certificado.data_vencimento = novo_vencimento
                 certificado.responsavel = (
                     item.get("responsavel") or item.get("socio")
                 )
@@ -86,6 +100,35 @@ def sincronizar_certificados(itens, substituir_lista=False):
                 certificado.data_atualizacao = datetime.utcnow()
                 chaves_recebidas.add((documento, arquivo))
                 resumo["criados" if novo else "atualizados"] += 1
+
+                if novo:
+                    if primeira_carga:
+                        tipo_alteracao = None
+                    else:
+                        tipo_alteracao = (
+                            "renovado"
+                            if documento in documentos_anteriores
+                            else "novo"
+                        )
+                elif vencimento_anterior != novo_vencimento.isoformat():
+                    tipo_alteracao = "vencimento_alterado"
+                else:
+                    tipo_alteracao = None
+
+                if tipo_alteracao:
+                    resumo["alteracoes_certificados"].append(
+                        {
+                            "tipo": tipo_alteracao,
+                            "empresa": nome,
+                            "cnpj": documento,
+                            "arquivo_anterior": arquivo_anterior,
+                            "arquivo_novo": arquivo,
+                            "vencimento_anterior": vencimento_anterior,
+                            "vencimento_novo": novo_vencimento.isoformat(),
+                        }
+                    )
+                else:
+                    resumo["inalterados"] += 1
             except (ValueError, TypeError) as erro:
                 resumo["rejeitados"].append(
                     {"indice": indice, "erro": str(erro)}

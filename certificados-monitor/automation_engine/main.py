@@ -45,6 +45,7 @@ from integracoes.google_drive import (
     ler_senha_google_docs,
 )
 from integracoes.api_monitor import ErroIntegracaoApi, sincronizar_com_api
+from resumo_atualizacoes_email import enviar_resumo_atualizacoes
 from utils.caminhos import obter_arquivo_env, obter_pasta_aplicacao
 from utils.terminal import escrever, progresso, tabela, titulo
 
@@ -1695,6 +1696,29 @@ if modo_api == "real" and resultados_certificados:
                 f"{resumo_api.get('atualizados', 0)} atualizados e "
                 f"{len(resumo_api.get('rejeitados', []))} rejeitados."
             )
+            resumo_atualizacoes = enviar_resumo_atualizacoes(resumo_api)
+            status_resumo = resumo_atualizacoes["status"]
+            quantidade_alterada = resumo_atualizacoes["quantidade"]
+            if status_resumo == "enviado":
+                print(
+                    "Resumo interno de certificados atualizados enviado: "
+                    f"{quantidade_alterada} alteracao(oes)."
+                )
+            elif status_resumo == "desativado" and quantidade_alterada:
+                print(
+                    "Resumo interno de atualizacoes preparado, mas o envio "
+                    "esta desativado."
+                )
+            elif status_resumo == "sem_destinatario":
+                print(
+                    "Resumo interno nao enviado: configure "
+                    "EMAIL_RESUMO_ATUALIZACOES."
+                )
+            elif status_resumo == "falhou":
+                print(
+                    "Falha no resumo interno de atualizacoes: "
+                    f"{resumo_atualizacoes.get('erro')}"
+                )
         except ErroIntegracaoApi as erro:
             print(f"Falha na sincronização com a API: {erro}")
 

@@ -7,7 +7,6 @@ import {
   Shield, 
   AlertTriangle, 
   Settings, 
-  Plus,
   Search,
   Bell,
   CheckCircle,
@@ -773,13 +772,6 @@ export default function Home() {
               </select>
             </div>
 
-            <button
-              onClick={() => { setCertificadoSelecionado(null); setModalType('certificado'); setShowModal(true); }}
-              className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 flex items-center"
-            >
-              <Plus className="w-5 h-5 mr-2" />
-              Novo Certificado
-            </button>
           </div>
 
           <div className="mt-5 flex flex-wrap gap-2 border-t border-gray-200 pt-4" aria-label="Filtros rápidos">

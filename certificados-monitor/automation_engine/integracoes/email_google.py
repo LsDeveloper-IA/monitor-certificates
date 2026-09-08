@@ -10,7 +10,10 @@ from dotenv import load_dotenv
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
-from utils.caminhos import obter_pasta_aplicacao
+try:
+    from utils.caminhos import obter_pasta_aplicacao
+except ModuleNotFoundError:  # Importacao a partir da raiz do backend.
+    from automation_engine.utils.caminhos import obter_pasta_aplicacao
 
 
 ESCOPO_EMAIL_SMTP = ["https://mail.google.com/"]

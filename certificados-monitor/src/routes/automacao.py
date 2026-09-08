@@ -10,6 +10,10 @@ from src.models.user import db
 from src.services.executor_automacao import executor_automacao, executor_sieg_automacao
 from src.services.agendador_automacao import agendador_automacao
 from automation_engine.registro_alertas import listar_alertas_enviados
+from automation_engine.resumo_atualizacoes_email import (
+    enviar_resumo_atualizacoes,
+    listar_resumos_atualizacoes,
+)
 
 
 automacao_bp = Blueprint("automacao", __name__)
@@ -48,6 +52,35 @@ def historico_mensagens_automacao():
         return jsonify({"mensagens": listar_alertas_enviados(limite)}), 200
     except (OSError, ValueError):
         return jsonify({"erro": "Nao foi possivel carregar o historico de mensagens"}), 500
+
+
+@automacao_bp.route("/automacao/resumos-atualizacoes", methods=["GET"])
+def historico_resumos_atualizacoes():
+    limite = request.args.get("limite", 30, type=int)
+    return jsonify({"resumos": listar_resumos_atualizacoes(limite)}), 200
+
+
+@automacao_bp.route("/automacao/resumos-atualizacoes-teste", methods=["POST"])
+def testar_resumo_atualizacoes():
+    resultado = enviar_resumo_atualizacoes(
+        {
+            "alteracoes_certificados": [
+                {
+                    "tipo": "renovado",
+                    "empresa": "EMPRESA DE TESTE DO MONITOR",
+                    "cnpj": "12345678000190",
+                    "arquivo_anterior": "certificado-anterior.pfx",
+                    "arquivo_novo": "certificado-renovado.pfx",
+                    "vencimento_anterior": "2026-09-08",
+                    "vencimento_novo": "2027-09-08",
+                }
+            ]
+        },
+        origem="teste_painel",
+    )
+    status = resultado.get("status")
+    codigo = 200 if status == "enviado" else 502 if status == "falhou" else 409
+    return jsonify(resultado), codigo
 
 
 @automacao_bp.route("/automacao/agendador-status", methods=["GET"])
@@ -90,6 +123,21 @@ def saude_integracoes():
         "nome": "Banco de clientes",
         "estado": banco_estado,
         "detalhe": banco_detalhe,
+    })
+
+    resumo_email_habilitado = os.getenv(
+        "ENVIAR_RESUMO_ATUALIZACOES_AUTOMATICO", "nao"
+    ).strip().casefold() in {"1", "s", "sim", "true"}
+    resumo_email_destino = bool(os.getenv("EMAIL_RESUMO_ATUALIZACOES", "").strip())
+    integracoes.append({
+        "id": "resumo_atualizacoes_email",
+        "nome": "Resumo de certificados atualizados",
+        "estado": "configurado" if resumo_email_habilitado and resumo_email_destino else "atencao",
+        "detalhe": (
+            "Envio interno habilitado e destinatario configurado."
+            if resumo_email_habilitado and resumo_email_destino
+            else "Configure o destinatario interno e habilite o resumo no ambiente."
+        ),
     })
 
     pasta_certificados = os.getenv("PASTA_CERTIFICADOS", "").strip()

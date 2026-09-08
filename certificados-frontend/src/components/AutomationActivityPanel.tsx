@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Activity, CheckCircle, ChevronDown, Clock, Download, Mail, MessageCircle, RefreshCw, Search, XCircle } from 'lucide-react';
+import { Activity, CheckCircle, ChevronDown, Clock, Download, Mail, MessageCircle, RefreshCw, Search, Send, XCircle } from 'lucide-react';
 import IntegrationHealthPanel from '@/components/IntegrationHealthPanel';
 
 const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
@@ -50,6 +50,25 @@ interface MensagemHistorico {
   motivo: string;
 }
 
+interface AlteracaoCertificado {
+  tipo: 'novo' | 'renovado' | 'vencimento_alterado';
+  empresa: string;
+  cnpj: string;
+  vencimento_anterior?: string | null;
+  vencimento_novo?: string | null;
+}
+
+interface ResumoAtualizacao {
+  id: string;
+  executado_em: string;
+  origem: 'automacao' | 'teste_painel';
+  status: 'enviado' | 'falhou' | 'sem_alteracoes' | 'desativado' | 'sem_destinatario';
+  quantidade: number;
+  destinatario: string;
+  erro?: string | null;
+  alteracoes: AlteracaoCertificado[];
+}
+
 const resumoVazio: ResumoEnvios = {
   email_enviados: 0,
   email_duplicados: 0,
@@ -75,6 +94,7 @@ export default function AutomationActivityPanel() {
   const [status, setStatus] = useState<ExecucaoAutomacao | null>(null);
   const [historico, setHistorico] = useState<ExecucaoAutomacao[]>([]);
   const [historicoMensagens, setHistoricoMensagens] = useState<MensagemHistorico[]>([]);
+  const [resumosAtualizacoes, setResumosAtualizacoes] = useState<ResumoAtualizacao[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState('');
   const [buscaMensagem, setBuscaMensagem] = useState('');
@@ -85,6 +105,8 @@ export default function AutomationActivityPanel() {
   const [repetindoFalhas, setRepetindoFalhas] = useState(false);
   const [confirmarRepeticao, setConfirmarRepeticao] = useState(false);
   const [avisoAcao, setAvisoAcao] = useState('');
+  const [confirmarTesteResumo, setConfirmarTesteResumo] = useState(false);
+  const [testandoResumo, setTestandoResumo] = useState(false);
 
   const carregarAtividade = useCallback(async (mostrarCarregamento = false) => {
     const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO) || '';
@@ -97,22 +119,25 @@ export default function AutomationActivityPanel() {
     if (mostrarCarregamento) setCarregando(true);
     try {
       const cabecalhos = { 'X-Admin-Key': chaveAdmin };
-      const [respostaStatus, respostaHistorico, respostaMensagens] = await Promise.all([
+      const [respostaStatus, respostaHistorico, respostaMensagens, respostaResumos] = await Promise.all([
         fetch('/api/automacao/status', { headers: cabecalhos, cache: 'no-store' }),
         fetch('/api/automacao/historico', { headers: cabecalhos, cache: 'no-store' }),
         fetch('/api/automacao/historico-mensagens?limite=50', { headers: cabecalhos, cache: 'no-store' }),
-      ]);
+        fetch('/api/automacao/resumos-atualizacoes?limite=30', { headers: cabecalhos, cache: 'no-store' }),
+            ]);
 
-      if (!respostaStatus.ok || !respostaHistorico.ok || !respostaMensagens.ok) {
+      if (!respostaStatus.ok || !respostaHistorico.ok || !respostaMensagens.ok || !respostaResumos.ok) {
         throw new Error('Não foi possível consultar a atividade da automação.');
       }
 
       const novoStatus = await respostaStatus.json();
       const novoHistorico = await respostaHistorico.json();
       const novasMensagens = await respostaMensagens.json();
+      const novosResumos = await respostaResumos.json();
       setStatus(novoStatus);
       setHistorico(novoHistorico.execucoes || []);
       setHistoricoMensagens(novasMensagens.mensagens || []);
+      setResumosAtualizacoes(novosResumos.resumos || []);
       setErro('');
     } catch (falha) {
       setErro(falha instanceof Error ? falha.message : 'Falha ao consultar a atividade.');
@@ -198,6 +223,28 @@ export default function AutomationActivityPanel() {
     }
   };
 
+  const testarResumoAtualizacoes = async () => {
+    const chaveAdmin = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO) || '';
+    if (!chaveAdmin) return;
+    setTestandoResumo(true);
+    setAvisoAcao('');
+    try {
+      const resposta = await fetch('/api/automacao/resumos-atualizacoes-teste', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Admin-Key': chaveAdmin },
+      });
+      const conteudo = await resposta.json();
+      if (!resposta.ok) throw new Error(conteudo.erro || `Teste nao enviado: ${conteudo.status || 'falha desconhecida'}`);
+      setAvisoAcao('E-mail de teste aceito pelo Gmail e registrado no historico.');
+      setConfirmarTesteResumo(false);
+      await carregarAtividade(false);
+    } catch (falha) {
+      setAvisoAcao(falha instanceof Error ? falha.message : 'Falha ao enviar o resumo de teste.');
+    } finally {
+      setTestandoResumo(false);
+    }
+  };
+
   if (carregando) {
     return (
       <div className="space-y-4 p-5 sm:p-6">
@@ -239,6 +286,14 @@ export default function AutomationActivityPanel() {
       : status.estado === 'falhou'
         ? 'border-red-200 bg-red-50 text-red-800'
         : 'border-gray-200 bg-gray-50 text-gray-700';
+  const ultimoResumo = resumosAtualizacoes[0] || null;
+  const rotulosResumo: Record<string, string> = {
+    enviado: 'Enviado',
+    falhou: 'Falhou',
+    sem_alteracoes: 'Sem alterações',
+    desativado: 'Envio desativado',
+    sem_destinatario: 'Sem destinatário',
+  };
 
   return (
     <div className="space-y-5 p-5 sm:p-6">
@@ -305,6 +360,76 @@ export default function AutomationActivityPanel() {
           </div>
         </section>
       </div>
+
+      <section className="rounded-xl border border-gray-200 p-4">
+        <div className="flex items-center gap-2">
+          <Send className="h-5 w-5 text-violet-600" />
+          <h4 className="font-semibold text-gray-900">Certificados atualizados</h4>
+        </div>
+        <p className="mt-1 text-xs text-gray-500">
+          Comparacao com a execucao anterior e resumo enviado ao e-mail interno.
+        </p>
+        <div className="mt-4 text-xs text-gray-600">
+          {ultimoResumo ? (
+            <>
+              <span className="font-semibold text-gray-800">
+                {rotulosResumo[ultimoResumo.status] || ultimoResumo.status}
+              </span>
+              {' - '}{ultimoResumo.quantidade} alteracao(oes) - {formatarDataHora(ultimoResumo.executado_em)}
+              <span className="ml-2 text-gray-400">Destino: {ultimoResumo.destinatario}</span>
+            </>
+          ) : 'Nenhuma comparacao registrada.'}
+        </div>
+        {ultimoResumo && ultimoResumo.alteracoes.length > 0 && (
+          <div className="mt-3 divide-y divide-gray-100 rounded-lg border border-gray-200">
+            {ultimoResumo.alteracoes.slice(0, 5).map((item, indice) => (
+              <div key={`${item.cnpj}-${indice}`} className="grid gap-1 px-3 py-2 text-xs sm:grid-cols-[1fr_170px_210px]">
+                <span className="font-medium text-gray-800">{item.empresa}</span>
+                <span className="text-gray-500">{item.cnpj}</span>
+                <span className="text-gray-600">
+                  {item.vencimento_anterior || '--'} para {item.vencimento_novo || '--'}
+                </span>
+              </div>
+            ))}
+            {ultimoResumo.alteracoes.length > 5 && (
+              <p className="px-3 py-2 text-xs text-gray-500">
+                Mais {ultimoResumo.alteracoes.length - 5} alteracao(oes) no resumo.
+              </p>
+            )}
+          </div>
+        )}
+        <button
+          type="button"
+          onClick={() => setConfirmarTesteResumo(true)}
+          disabled={testandoResumo || status.executando}
+          className="mt-4 inline-flex items-center rounded-lg border border-violet-300 px-3 py-2 text-xs font-medium text-violet-700 hover:bg-violet-50 disabled:opacity-50"
+        >
+          <Send className="mr-1.5 h-3.5 w-3.5" /> Enviar e-mail de teste
+        </button>
+        {confirmarTesteResumo && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 p-3 text-xs text-amber-900">
+            <p className="font-semibold">Confirmar envio de teste?</p>
+            <p className="mt-1">Um resumo ficticio sera enviado somente ao e-mail interno configurado.</p>
+            <div className="mt-3 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setConfirmarTesteResumo(false)}
+                className="rounded-lg bg-white px-3 py-1.5 font-medium text-gray-700"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={testarResumoAtualizacoes}
+                disabled={testandoResumo}
+                className="rounded-lg bg-violet-600 px-3 py-1.5 font-medium text-white disabled:opacity-50"
+              >
+                {testandoResumo ? 'Enviando...' : 'Confirmar teste'}
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
 
       {status.automacoes && (
         <section>

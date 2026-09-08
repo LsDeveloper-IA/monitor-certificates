@@ -50,6 +50,32 @@ class AutomacaoProtegidaTestCase(unittest.TestCase):
         self.assertEqual(resposta.status_code, 200)
         self.assertIn("execucoes", resposta.json)
 
+    @patch(
+        "src.routes.automacao.listar_resumos_atualizacoes",
+        return_value=[{"id": "resumo-1", "status": "enviado"}],
+    )
+    def test_permite_consultar_resumos_de_atualizacoes(self, _listar):
+        resposta = self.cliente.get(
+            "/api/automacao/resumos-atualizacoes",
+            headers={"X-Automation-Key": "chave-interna-teste"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json["resumos"][0]["status"], "enviado")
+
+    @patch(
+        "src.routes.automacao.enviar_resumo_atualizacoes",
+        return_value={"status": "enviado", "quantidade": 1},
+    )
+    def test_envia_resumo_de_teste_somente_em_rota_explicita(self, enviar):
+        resposta = self.cliente.post(
+            "/api/automacao/resumos-atualizacoes-teste",
+            headers={"X-Automation-Key": "chave-interna-teste"},
+        )
+
+        self.assertEqual(resposta.status_code, 200)
+        enviar.assert_called_once()
+
     def test_permite_consultar_agendador_integrado(self):
         resposta = self.cliente.get(
             "/api/automacao/agendador-status",

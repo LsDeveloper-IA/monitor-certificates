@@ -18,6 +18,8 @@ async function encaminhar(
     'status',
     'historico',
     'historico-mensagens',
+    'resumos-atualizacoes',
+    'resumos-atualizacoes-teste',
     'executar',
     'parar',
     'sieg-status',
