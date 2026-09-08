@@ -17,8 +17,13 @@ certificados-monitor/automation_engine/logs/
 certificados-monitor/automation_engine/dados/
 certificados-frontend/.env.local
 certificados-monitor/*.pyc
-**/__pycache__/
+__pycache__/
+*.pyc
 *.py[cod]
+
+# Bancos de dados locais
+*.db
+*.sqlite3
 
 # Geral
 .DS_Store
