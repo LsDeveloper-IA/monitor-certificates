@@ -1,36 +1,51 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Frontend do Monitor de Certificados
 
-## Getting Started
+Painel Next.js 15 para consultar certificados, acompanhar pendências, abrir o
+relatório de certificados vencidos e controlar as automações do backend.
 
-First, run the development server:
+## Telas
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+- `/`: visão geral, filtros, busca, cadastro e estatísticas dos certificados.
+- O painel e o modal da página inicial exibem execução, agendamento, progresso,
+  histórico e logs da automação de monitoramento.
+- `/certificados-vencidos`: consolidação dos resultados das automações SIEG.
+
+As rotas em `src/app/api/` funcionam como proxy para o Flask. A chave interna
+fica apenas no servidor Next.js e não é enviada ao navegador.
+
+## Configuração
+
+Copie `.env.example` para `.env.local`:
+
+```env
+BACKEND_URL=http://localhost:5000
+AUTOMACAO_EXECUTION_KEY=mesmo-valor-do-backend
+AUTOMACAO_ADMIN_KEY=senha-administrativa-local
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`AUTOMACAO_EXECUTION_KEY` deve ser igual à variável do backend.
+`AUTOMACAO_ADMIN_KEY` protege as ações administrativas expostas pelo proxy.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Instalação e execução
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```powershell
+npm install
+npm run dev
+```
 
-## Learn More
+Neste repositório, `npm run dev` chama `scripts/dev.ps1`: inicia o Flask em
+segundo plano na porta 5000 e depois o Next.js na porta 3000. Para iniciar
+somente o frontend, com um backend já disponível, use:
 
-To learn more about Next.js, take a look at the following resources:
+```powershell
+npm run dev:frontend
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Verificação
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+```powershell
+npm run build
+```
 
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+O frontend espera o backend em `BACKEND_URL`; sem ele, consultas e ações de
+automação retornam erro pelo proxy.

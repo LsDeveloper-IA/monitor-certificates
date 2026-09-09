@@ -1,6 +1,7 @@
 """Regressões do upload com DOM local e sem carregar configurações reais."""
 
 import ast
+import sys
 import re
 import time
 import unittest
@@ -10,11 +11,11 @@ from unittest.mock import Mock
 from playwright.sync_api import sync_playwright
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from sieg_comum.modais import modal_visivel
+
 ARQUIVO_AUTOMACAO = Path(__file__).resolve().parents[1] / "automacao.py"
-XPATH_OPCAO = (
-    "/html/body/div[6]/div/div[2]/section[2]/"
-    "div/div[3]/div[2]/div[1]/div[2]/input"
-)
+SELETOR_OPCAO = "xpath=.//section[2]/div/div[3]/div[2]/div[1]/div[2]/input"
 
 
 class CertificadoRejeitadoError(RuntimeError):
@@ -33,7 +34,7 @@ def carregar_funcoes(*nomes, **dependencias):
         raise AssertionError(f"Helpers não encontrados: {set(nomes) - encontrados}")
     namespace = {
         "re": re,
-        "time": time,
+        "time": time, "modal_visivel": modal_visivel,
         "print": Mock(),
         "CertificadoRejeitadoError": CertificadoRejeitadoError,
         **dependencias,
@@ -75,7 +76,7 @@ class OpcaoDepoisUploadTest(unittest.TestCase):
         )["garantir_input_ativo"]
 
     def executar(self, **kwargs):
-        self.garantir(self.page, XPATH_OPCAO, "opção de teste", timeout_ms=400, **kwargs)
+        self.garantir(self.page, "opcao de teste", seletor_sem_rotulo=SELETOR_OPCAO, timeout_ms=400, **kwargs)
 
     def test_modal_muda_da_sexta_para_setima_div(self):
         self.page.set_content("<div></div>" * 6 + modal_opcao("atual"))
@@ -92,12 +93,11 @@ class OpcaoDepoisUploadTest(unittest.TestCase):
         self.assertFalse(self.page.locator("#antigo").is_checked())
         self.assertTrue(self.page.locator("#atual").is_checked())
 
-    def test_nao_altera_nenhum_campo_se_dois_modais_correspondem(self):
+    def test_usa_somente_o_ultimo_modal_visivel(self):
         self.page.set_content(modal_opcao("primeiro") + modal_opcao("segundo"))
-        with self.assertRaises(TimeoutError):
-            self.executar()
+        self.executar()
         self.assertFalse(self.page.locator("#primeiro").is_checked())
-        self.assertFalse(self.page.locator("#segundo").is_checked())
+        self.assertTrue(self.page.locator("#segundo").is_checked())
 
     def test_opcao_ja_marcada_e_desabilitada_nao_bloqueia_continuacao(self):
         self.page.set_content(modal_opcao("atual", checked=True, disabled=True))
@@ -125,10 +125,54 @@ class OpcaoDepoisUploadTest(unittest.TestCase):
         self.assertNotIsInstance(erro.exception, CertificadoRejeitadoError)
         self.rejeicao.assert_called()
 
-    def test_xpath_alternativo_mesmo_campo_nao_cria_ambiguidade(self):
-        self.page.set_content(modal_opcao("atual"))
-        self.executar(xpath_alternativo="//*[@id='atual']")
-        self.assertTrue(self.page.locator("#atual").is_checked())
+    def test_rotulo_sobrevive_a_reorganizacao_do_conteudo(self):
+        self.page.set_content("""<div role="dialog"><article><footer><label for="alvo">Opcao desejada</label></footer>
+            <main><input type="checkbox" id="alvo"><input type="checkbox" aria-label="Outra opcao"></main></article></div>""")
+        self.garantir(self.page, "opcao de teste", rotulo="Opcao desejada", timeout_ms=400)
+        self.assertTrue(self.page.locator("#alvo").is_checked())
+        self.assertFalse(self.page.get_by_label("Outra opcao").is_checked())
+
+    def test_nfse_portal_nacional_so_no_modal_ativo(self):
+        arvore = ast.parse(ARQUIVO_AUTOMACAO.read_text(encoding="utf-8-sig"))
+        chamada = next(no for no in ast.walk(arvore)
+                       if isinstance(no, ast.Call) and isinstance(no.func, ast.Name)
+                       and no.func.id == "garantir_input_ativo" and len(no.args) > 1
+                       and isinstance(no.args[1], ast.Constant)
+                       and no.args[1].value == "NFS-e Portal Nacional")
+        self.page.set_content('''<div role="dialog" style="display:none">
+              <label><input type="checkbox" id="antigo">NFS-e Portal Nacional</label></div>
+            <div role="dialog"><aside><label><input type="checkbox" id="outro">Outro serviço</label></aside>
+              <article><label for="nfse">NFS-e Portal Nacional</label></article>
+              <footer><input type="checkbox" id="nfse"></footer></div>''')
+        codigo = compile(ast.Expression(body=chamada), str(ARQUIVO_AUTOMACAO), "eval")
+        eval(codigo, {"page": self.page, "re": re, "garantir_input_ativo": self.garantir})
+        self.assertTrue(self.page.locator("#nfse").is_checked())
+        self.assertFalse(self.page.locator("#outro").is_checked())
+        self.assertFalse(self.page.locator("#antigo").is_checked())
+        self.assertNotIn("seletor_sem_rotulo", [arg.arg for arg in chamada.keywords])
+
+    def test_opcoes_hub_iris_por_rotulo_com_ordem_invertida(self):
+        self.page.set_content('''<input type="checkbox" aria-label="Docs Fiscais/HUB" id="fora">
+            <div role="dialog"><article>
+              <label><input type="checkbox" id="iris">Controle de Pendências / Iris</label>
+              <label><input type="checkbox" id="outro">Outro serviço</label>
+              <footer><label for="hub">Docs Fiscais / HUB</label></footer>
+              <input type="checkbox" id="hub">
+            </article></div>''')
+        marcar = Mock()
+        enviar = carregar_funcoes(
+            "enviar_certificado_candidato", preparar_tela_upload_certificado=Mock(),
+            campo_upload_modal=Mock(), aguardar_validacao_senha_certificado=Mock(return_value=(True, "OK")),
+            clicar_salvar_e_continuar=Mock(), garantir_input_ativo=marcar,
+        )["enviar_certificado_candidato"]
+        enviar(Mock(), {"arquivo_nome": "teste.pfx", "pfx_bytes": b"teste", "senha": "teste"}, "1", "Empresa")
+        for chamada in marcar.call_args_list:
+            self.garantir(self.page, chamada.args[1], rotulo=chamada.kwargs["rotulo"], timeout_ms=400)
+        self.assertTrue(self.page.locator("#hub").is_checked())
+        self.assertTrue(self.page.locator("#iris").is_checked())
+        self.assertFalse(self.page.locator("#outro").is_checked())
+        self.assertFalse(self.page.locator("#fora").is_checked())
+
 
 
 class EnvioCertificadoTest(unittest.TestCase):
@@ -144,6 +188,7 @@ class EnvioCertificadoTest(unittest.TestCase):
         self.validar = Mock(return_value=(True, "Senha correta"))
         self.avancar = Mock()
         self.marcar = Mock()
+        self.campo_upload = Mock()
         self.enviar = carregar_funcoes(
             "enviar_certificado_candidato",
             preparar_tela_upload_certificado=self.preparar,
@@ -151,6 +196,7 @@ class EnvioCertificadoTest(unittest.TestCase):
             clicar_salvar_e_continuar=self.avancar,
             garantir_input_ativo=self.marcar,
             obter_rejeicao_certificado=Mock(return_value=None),
+            campo_upload_modal=self.campo_upload,
         )["enviar_certificado_candidato"]
 
     def executar(self):
@@ -159,7 +205,7 @@ class EnvioCertificadoTest(unittest.TestCase):
     def test_upload_aceito_avanca_e_verifica_as_duas_opcoes(self):
         self.executar()
         self.preparar.assert_called_once_with(self.page, "00000000000000", "Empresa de teste")
-        campo = self.page.locator.return_value.last
+        campo = self.campo_upload.return_value
         campo.set_input_files.assert_called_once_with({
             "name": self.candidato["arquivo_nome"],
             "mimeType": "application/x-pkcs12",
@@ -171,6 +217,9 @@ class EnvioCertificadoTest(unittest.TestCase):
         self.assertEqual(self.marcar.call_count, 2)
         for chamada in self.marcar.call_args_list:
             self.assertTrue(chamada.kwargs["verificar_rejeicao"])
+            self.assertNotIn("seletor_sem_rotulo", chamada.kwargs)
+        self.assertTrue(self.marcar.call_args_list[0].kwargs["rotulo"].fullmatch("Docs Fiscais / HUB"))
+        self.assertTrue(self.marcar.call_args_list[1].kwargs["rotulo"].fullmatch("Controle de Pendências / Iris"))
 
     def test_rejeicao_explicita_da_validacao_permite_trocar_candidato(self):
         self.validar.return_value = False, "Senha incorreta"

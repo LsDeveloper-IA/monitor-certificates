@@ -274,6 +274,115 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
             set(executor_sieg_automacao.pastas_motores),
             {"certificados_vencidos", "auto_nc"},
         )
+        self.assertEqual(
+            executor_sieg_automacao._ordem_motores,
+            ["certificados_vencidos", "auto_nc"],
+        )
+
+    def test_executa_sieg_e_depois_auto_nc_sem_sobrepor_processos(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            raiz = Path(pasta)
+            pasta_sieg = raiz / "automacao-sieg"
+            pasta_auto_nc = raiz / "Auto_NC"
+            pasta_sieg.mkdir()
+            pasta_auto_nc.mkdir()
+            (pasta_sieg / "main.py").touch()
+            (pasta_auto_nc / "main.py").touch()
+            eventos = []
+            processos_ativos = []
+
+            class ProcessoFalso:
+                stdout = []
+                pid = 123
+
+                def __init__(self, nome):
+                    self.nome = nome
+
+                def wait(self):
+                    eventos.append(f"fim:{self.nome}")
+                    processos_ativos.remove(self.nome)
+                    return 0
+
+            def iniciar_processo(*_args, **kwargs):
+                nome = Path(kwargs["cwd"]).name
+                self.assertEqual(processos_ativos, [])
+                processos_ativos.append(nome)
+                eventos.append(f"inicio:{nome}")
+                return ProcessoFalso(nome)
+
+            executor = ExecutorAutomacao(
+                arquivo_historico=raiz / "historico.json",
+                pastas_motores={
+                    "certificados_vencidos": pasta_sieg,
+                    "auto_nc": pasta_auto_nc,
+                },
+                ordem_motores=("certificados_vencidos", "auto_nc"),
+            )
+            executor._executando = True
+            executor._execucao_id = "sequencial"
+            executor._inicio = datetime.now()
+
+            with patch(
+                "src.services.executor_automacao.subprocess.Popen",
+                side_effect=iniciar_processo,
+            ):
+                executor._executar_processo(False, False, "nenhum", False)
+
+        self.assertEqual(
+            eventos,
+            [
+                "inicio:automacao-sieg",
+                "fim:automacao-sieg",
+                "inicio:Auto_NC",
+                "fim:Auto_NC",
+            ],
+        )
+
+    def test_nao_inicia_auto_nc_quando_automacao_sieg_falha(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            raiz = Path(pasta)
+            pasta_sieg = raiz / "automacao-sieg"
+            pasta_auto_nc = raiz / "Auto_NC"
+            pasta_sieg.mkdir()
+            pasta_auto_nc.mkdir()
+            (pasta_sieg / "main.py").touch()
+            (pasta_auto_nc / "main.py").touch()
+
+            class ProcessoFalso:
+                stdout = []
+                pid = 123
+
+                @staticmethod
+                def wait():
+                    return 1
+
+            executor = ExecutorAutomacao(
+                arquivo_historico=raiz / "historico.json",
+                pastas_motores={
+                    "certificados_vencidos": pasta_sieg,
+                    "auto_nc": pasta_auto_nc,
+                },
+                ordem_motores=("certificados_vencidos", "auto_nc"),
+            )
+            executor._executando = True
+            executor._execucao_id = "falha-sieg"
+            executor._inicio = datetime.now()
+
+            with patch(
+                "src.services.executor_automacao.subprocess.Popen",
+                return_value=ProcessoFalso(),
+            ) as popen:
+                executor._executar_processo(False, False, "nenhum", False)
+
+            status = executor.status()
+
+        popen.assert_called_once()
+        self.assertEqual(
+            status["automacoes"]["certificados_vencidos"]["estado"], "falhou"
+        )
+        self.assertEqual(
+            status["automacoes"]["auto_nc"]["estado"], "interrompida"
+        )
 
     def test_resumo_de_envios_e_extraido_dos_logs(self):
         executor = ExecutorAutomacao()

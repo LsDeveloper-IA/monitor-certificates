@@ -3,7 +3,7 @@ import io
 import json
 from datetime import datetime
 from googleapiclient.http import MediaIoBaseUpload
-from config import DRIVE_RELATORIOS_FOLDER_ID
+from config import DRIVE_RELATORIOS_FOLDER_ID, validar_pastas_drive
 from config import ARQUIVO_CHECKPOINT, PASTA_REGISTROS
 
 
@@ -77,8 +77,10 @@ def gerar_resumo_execucao(
     service,
     empresas_sucesso=None,
     quantidade_certas=0,
+    empresas_ignoradas=None,
 ):
     """Gera o relatório JSON e envia diretamente para o Google Drive."""
+    validar_pastas_drive()
     agora = _agora()
 
     nome_arquivo = (
@@ -96,6 +98,7 @@ def gerar_resumo_execucao(
         },
         "empresas_com_falha": falhas_detalhes,
         "empresas_com_sucesso": empresas_sucesso or [],
+        "empresas_ignoradas": empresas_ignoradas or [],
     }
 
     json_bytes = json.dumps(

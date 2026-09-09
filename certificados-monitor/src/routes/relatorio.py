@@ -7,7 +7,6 @@ import unicodedata
 from pathlib import Path
 
 from flask import Blueprint, current_app, jsonify
-from sqlalchemy import func
 
 from automation_engine.integracoes.google_drive import (
     conectar_google_drive,
@@ -29,12 +28,20 @@ def _carregar_empresas_sem_certificado():
         conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
         empresas = conteudo.get("empresas", [])
         empresas = _deduplicar_empresas(empresas) if isinstance(empresas, list) else []
-        maior_quantidade = _inteiro_nao_negativo(
-            conteudo.get("maior_quantidade"), len(empresas)
-        )
-        return empresas, max(len(empresas), maior_quantidade)
+        return empresas
     except (FileNotFoundError, OSError, ValueError, TypeError):
-        return [], 0
+        return []
+
+
+def _carregar_base_empresas_sieg():
+    arquivo = Path(__file__).resolve().parents[3] / "Auto_NC" / "empresas_sieg.json"
+    try:
+        dados = json.loads(arquivo.read_text(encoding="utf-8"))
+        if isinstance(dados, dict) and dados.get("completo") is True and isinstance(dados.get("empresas"), list):
+            return dados
+    except (OSError, ValueError, TypeError):
+        pass
+    return None
 
 
 def _inteiro_nao_negativo(valor, padrao=0):
@@ -80,9 +87,9 @@ def _extrair_cnpj_da_empresa(empresa):
     empresa = dict(empresa)
     nome = _nome_empresa(empresa)
     cnpj = _cnpj_empresa(empresa)
-    if not cnpj and nome:
+    if nome:
         match = re.search(r"(\d{14}|\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2})", nome)
-        if match:
+        if match and (not cnpj or re.sub(r"\D", "", match.group(1)) == cnpj):
             cnpj = re.sub(r"\D", "", match.group(1))
             nome_sem_cnpj = nome[: match.start()] + nome[match.end() :]
             nome = _limpar_nome_empresa(nome_sem_cnpj)
@@ -164,72 +171,78 @@ def _mesclar_empresa_base(empresa_base, empresa_complemento):
     return empresa
 
 
-def _sucessos_por_empresas_drive(empresas_drive, falhas, sucessos_explicitos):
-    """No Drive, toda empresa sem falha é considerada um sucesso."""
-    falhas_normalizadas = [_extrair_cnpj_da_empresa(dict(empresa)) for empresa in falhas]
-    nomes_com_falha = {_chave_nome(empresa) for empresa in falhas_normalizadas}
-    nomes_com_falha.discard("")
-    cnpjs_com_falha = {
-        re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
-        for empresa in falhas_normalizadas
-        if re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
-    }
-
-    sucessos_por_chave = {}
-    for empresa in sucessos_explicitos:
-        empresa = _extrair_cnpj_da_empresa(dict(empresa))
-        chave = _chave_empresa(empresa)
-        if not chave:
-            continue
-        if empresa.get("cnpj") and empresa["cnpj"] in cnpjs_com_falha:
-            continue
-        nome_chave = _chave_nome(empresa)
-        if nome_chave and nome_chave in nomes_com_falha:
-            continue
-        sucessos_por_chave[chave] = empresa
-
-    for empresa_drive in empresas_drive:
-        empresa_drive = _extrair_cnpj_da_empresa(dict(empresa_drive))
-        chave_drive = _chave_empresa(empresa_drive)
-        if not chave_drive:
-            continue
-        if empresa_drive.get("cnpj") and empresa_drive["cnpj"] in cnpjs_com_falha:
-            continue
-        nome_drive = _chave_nome(empresa_drive)
-        if nome_drive and nome_drive in nomes_com_falha:
-            continue
-
-        empresa_existente = sucessos_por_chave.get(chave_drive)
-        if empresa_existente is not None:
-            sucessos_por_chave[chave_drive] = _mesclar_empresa_base(
-                empresa_existente,
-                empresa_drive,
-            )
-            continue
-
-        chave_compat = None
-        for chave, empresa in sucessos_por_chave.items():
-            cnpj = re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
-            if cnpj and cnpj == empresa_drive.get("cnpj"):
-                chave_compat = chave
-                break
-            if _chave_nome(empresa) == nome_drive:
-                chave_compat = chave
-                break
-
-        if chave_compat is not None:
-            sucessos_por_chave[chave_compat] = _mesclar_empresa_base(
-                sucessos_por_chave[chave_compat],
-                empresa_drive,
-            )
-            continue
-
-        sucessos_por_chave.setdefault(chave_drive, empresa_drive)
-
-    return sorted(
-        sucessos_por_chave.values(),
-        key=lambda empresa: (_chave_nome(empresa), str(empresa.get("cnpj") or "")),
+def _consolidar_categorias(relatorio, base_sieg=None):
+    """Conta CNPJs únicos e limita os resultados à base ativa, quando disponível."""
+    # Pendências específicas prevalecem sobre sucesso inferido a partir do Drive.
+    categorias = (
+        ("sucessos", "empresas_com_sucesso"),
+        ("ignorados", "empresas_ignoradas"),
+        ("falhas", "empresas_com_falha"),
+        ("sem_certificado", "empresas_sem_certificado"),
     )
+    listas = {
+        campo: [
+            _extrair_cnpj_da_empresa(empresa)
+            for empresa in relatorio.get(campo, []) or []
+            if isinstance(empresa, dict)
+        ]
+        for _, campo in categorias
+    }
+    base = {}
+    if base_sieg is not None:
+        for item in base_sieg["empresas"]:
+            if not isinstance(item, dict) or item.get("ativo_sieg") is not True:
+                continue
+            empresa = _extrair_cnpj_da_empresa(item)
+            documento = _cnpj_empresa(empresa)
+            if len(documento) == 14:
+                base[documento] = empresa
+    documentos_por_nome = {}
+    for empresas in [*listas.values(), base.values()]:
+        for empresa in empresas:
+            nome = _chave_nome(empresa)
+            documento = _cnpj_empresa(empresa)
+            if nome and documento:
+                documentos_por_nome.setdefault(nome, set()).add(documento)
+
+    unicas = {}
+    for _, campo in categorias:
+        for empresa in listas[campo]:
+            nome = _chave_nome(empresa)
+            documento = _cnpj_empresa(empresa)
+            documentos = documentos_por_nome.get(nome, set())
+            if not documento and len(documentos) == 1:
+                documento = next(iter(documentos))
+                empresa = {**empresa, "cnpj": documento}
+            # CPF, documento incompleto e nome sem CNPJ identificável não entram.
+            if len(documento) != 14:
+                continue
+            if base_sieg is not None and documento not in base:
+                continue
+            anterior = unicas.get(documento)
+            if anterior:
+                empresa = _mesclar_empresa_base(empresa, anterior[1])
+            unicas[documento] = (campo, empresa)
+
+    resultado = dict(relatorio)
+    resumo = dict(relatorio.get("resumo") or {})
+    for contador, campo in categorias:
+        resultado[campo] = sorted(
+            (empresa for categoria, empresa in unicas.values() if categoria == campo),
+            key=lambda empresa: (_chave_nome(empresa), _cnpj_empresa(empresa)),
+        )
+        resumo[contador] = len(resultado[campo])
+    resumo["certas"] = resumo["sucessos"]
+    resultado["empresas_sem_resultado"] = sorted(
+        (empresa for documento, empresa in base.items() if documento not in unicas),
+        key=lambda empresa: (_chave_nome(empresa), _cnpj_empresa(empresa)),
+    )
+    resumo["sem_resultado"] = len(resultado["empresas_sem_resultado"])
+    resumo["total_processado"] = len(base) if base_sieg is not None else len(unicas)
+    resultado["fonte_total"] = "sieg_cnpj_ativos" if base_sieg is not None else "relatorios"
+    resultado["base_atualizada_em"] = base_sieg.get("atualizado_em") if base_sieg is not None else None
+    resultado["resumo"] = resumo
+    return resultado
 
 
 def _normalizar_relatorio(dados):
@@ -250,6 +263,9 @@ def _normalizar_relatorio(dados):
 
     dados["empresas_com_falha"] = _deduplicar_empresas(falhas)
     dados["empresas_com_sucesso"] = _deduplicar_empresas(sucessos)
+    dados["empresas_ignoradas"] = _deduplicar_empresas(
+        dados.get("empresas_ignoradas") or []
+    )
     resumo["sucessos"] = len(dados["empresas_com_sucesso"])
     return dados
 
@@ -330,6 +346,8 @@ def _acumular_relatorio(dados, arquivo):
     # sucessos de um relatório posterior.
     for empresa in dados["empresas_com_sucesso"]:
         _atualizar_empresa(empresa, "sucesso", dados, arquivo)
+    for empresa in dados["empresas_ignoradas"]:
+        _atualizar_empresa(empresa, "ignorado", dados, arquivo)
     for empresa in dados["empresas_com_falha"]:
         _atualizar_empresa(empresa, "falha", dados, arquivo)
 
@@ -360,6 +378,9 @@ def _montar_relatorio_acumulado():
     sucessos = EmpresaRelatorio.query.filter_by(status="sucesso").order_by(
         EmpresaRelatorio.nome
     ).all()
+    ignorados = EmpresaRelatorio.query.filter_by(status="ignorado").order_by(
+        EmpresaRelatorio.nome
+    ).all()
     ultimo = RelatorioDriveProcessado.query.order_by(
         RelatorioDriveProcessado.arquivo_modificado_em.desc(),
         RelatorioDriveProcessado.id.desc(),
@@ -367,29 +388,18 @@ def _montar_relatorio_acumulado():
     if ultimo is None:
         raise FileNotFoundError("Nenhum relatório foi processado.")
 
-    recordes = db.session.query(
-        func.max(RelatorioDriveProcessado.total_sucessos),
-        func.max(RelatorioDriveProcessado.total_ignorados),
-        func.max(RelatorioDriveProcessado.total_falhas),
-    ).one()
-    total_sucessos = max(len(sucessos), _inteiro_nao_negativo(recordes[0]))
-    total_ignorados = max(
-        _inteiro_nao_negativo(ultimo.total_ignorados),
-        _inteiro_nao_negativo(recordes[1]),
-    )
-    total_falhas = max(len(falhas), _inteiro_nao_negativo(recordes[2]))
-
     return {
         "titulo": ultimo.titulo or "Resumo acumulado da automação SIEG",
         "executado_em": ultimo.executado_em or ultimo.arquivo_modificado_em,
         "resumo": {
             "certas": 0,
-            "sucessos": total_sucessos,
-            "ignorados": total_ignorados,
-            "falhas": total_falhas,
+            "sucessos": len(sucessos),
+            "ignorados": len(ignorados),
+            "falhas": len(falhas),
         },
         "empresas_com_falha": [empresa.to_dict() for empresa in falhas],
         "empresas_com_sucesso": [empresa.to_dict() for empresa in sucessos],
+        "empresas_ignoradas": [empresa.to_dict() for empresa in ignorados],
         "arquivo_drive": {
             "id": ultimo.arquivo_id,
             "nome": ultimo.arquivo_nome,
@@ -434,16 +444,11 @@ def sincronizar_relatorios_drive():
         relatorio = _montar_relatorio_acumulado()
         if os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip():
             empresas_drive = listar_empresas_drive(drive)
-            relatorio["empresas_com_sucesso"] = _sucessos_por_empresas_drive(
-                empresas_drive,
-                relatorio["empresas_com_falha"],
-                relatorio["empresas_com_sucesso"],
-            )
-            total_sucessos = len(relatorio["empresas_com_sucesso"])
-            relatorio["resumo"]["sucessos"] = max(
-                relatorio["resumo"]["sucessos"], total_sucessos
-            )
-            relatorio["resumo"]["certas"] = relatorio["resumo"]["sucessos"]
+            relatorio["empresas_com_sucesso"] = [
+                *empresas_drive, *relatorio["empresas_com_sucesso"],
+            ]
+        # Consolida depois de incluir Auto_NC e a base SIEG, para também
+        # identificar pelo nome os relatórios antigos sem documento.
         return relatorio
 
 
@@ -451,10 +456,8 @@ def sincronizar_relatorios_drive():
 def relatorio_certificados_vencidos():
     try:
         relatorio = sincronizar_relatorios_drive()
-        sem_certificado, maior_sem_certificado = _carregar_empresas_sem_certificado()
-        relatorio["empresas_sem_certificado"] = sem_certificado
-        relatorio["resumo"]["sem_certificado"] = maior_sem_certificado
-        return jsonify(relatorio), 200
+        relatorio["empresas_sem_certificado"] = _carregar_empresas_sem_certificado()
+        return jsonify(_consolidar_categorias(relatorio, _carregar_base_empresas_sieg())), 200
     except FileNotFoundError as erro:
         return jsonify({"erro": str(erro)}), 404
     except (ValueError, json.JSONDecodeError) as erro:

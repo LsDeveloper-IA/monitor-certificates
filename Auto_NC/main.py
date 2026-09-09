@@ -1,19 +1,24 @@
+import sys
+from pathlib import Path
+
+RAIZ = str(Path(__file__).resolve().parents[1])
+if RAIZ not in sys.path:
+    sys.path.insert(0, RAIZ)
+
+from sieg_comum.identidade import normalizar_texto
+from sieg_comum.configuracao import ler_inteiro_nao_negativo
+from sieg_comum.navegacao import clicar_com_rolagem, abrir_edicao_empresa, preencher_uf_se_necessario
+from sieg_comum.sessao import realizar_login_sieg
+from sieg_comum import drive as cliente_drive
+
 import os
 import json
 import re
 import tempfile
 import time
-import unicodedata
-from pathlib import Path
 from datetime import datetime
-from docx import Document
-from playwright.sync_api import sync_playwright, expect
-from google.auth.transport.requests import Request
-from google.auth.exceptions import RefreshError
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.http import MediaFileUpload, MediaIoBaseDownload
+from playwright.sync_api import sync_playwright
+from googleapiclient.http import MediaFileUpload
 
 
 def carregar_arquivo_env():
@@ -38,7 +43,7 @@ carregar_arquivo_env()
 # CONFIGURAÇÕES DE PASTA E TEMPOS DE ESPERA
 # ---------------------------------------------------------
 # Configure o ID da pasta raiz no Google Drive e coloque credentials.json neste diretório.
-ID_PASTA_DRIVE_CERTIFICADOS = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "")
+ID_PASTA_DRIVE_CERTIFICADOS = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 ARQUIVO_CREDENCIAIS_GOOGLE = Path(
     os.getenv("GOOGLE_DRIVE_CREDENTIALS", "credentials.json")
 )
@@ -46,9 +51,7 @@ ARQUIVO_TOKEN_GOOGLE = Path(
     os.getenv("GOOGLE_DRIVE_TOKEN", "token.json")
 )
 ESCOPO_GOOGLE_DRIVE = ["https://www.googleapis.com/auth/drive"]
-ID_PASTA_DRIVE_RELATORIO = os.getenv(
-    "AUTO_NC_REPORT_FOLDER_ID", "1meQotNC34O7gVYUGFGcK2p_qeT5r9eX4"
-)
+ID_PASTA_DRIVE_RELATORIO = os.getenv("AUTO_NC_REPORT_FOLDER_ID", "").strip()
 PASTA_TEMPORARIA_DRIVE = Path(tempfile.gettempdir()) / "auto_nc_drive"
 ARQUIVO_RELATORIO_SEM_CERTIFICADO = Path(
     os.getenv(
@@ -56,12 +59,13 @@ ARQUIVO_RELATORIO_SEM_CERTIFICADO = Path(
         str(Path(__file__).with_name("empresas_sem_certificado.json")),
     )
 )
+ARQUIVO_EMPRESAS_SIEG = Path(__file__).with_name("empresas_sieg.json")
 SIEG_EMAIL = os.getenv("SIEG_EMAIL", "")
 SIEG_SENHA = os.getenv("SIEG_SENHA", "")
 
 # Tempos de espera (em segundos)
 TIME_CURTO = 2.5   # Pausa entre as etapas principais
-PAUSA_CADA_ACAO_MS = 600  # Espera automatica apos cada acao do Playwright
+PAUSA_CADA_ACAO_MS = ler_inteiro_nao_negativo("SIEG_SLOW_MO_MS")
 TIME_LONGO = 6.0   # Pausa para validação do PFX (TIMEEEEE)
 TIME_FINAL = 15.0  # Pausa após "Confirmar e finalizar"
 
@@ -69,35 +73,74 @@ TIME_FINAL = 15.0  # Pausa após "Confirmar e finalizar"
 # ---------------------------------------------------------
 # FUNÇÕES AUXILIARES
 # ---------------------------------------------------------
-def normalizar_texto(texto):
-    """Remove acentos, caracteres especiais e converte para maiúsculas."""
-    if not texto:
-        return ""
-    texto_nfkd = unicodedata.normalize("NFKD", texto)
-    texto_sem_acento = "".join([c for c in texto_nfkd if not unicodedata.combining(c)])
-    texto_maiusculo = texto_sem_acento.upper()
-    texto_limpo = re.sub(r"[^A-Z0-9\s]", " ", texto_maiusculo)
-    return " ".join(texto_limpo.split())
+
+
+def ler_empresas_sieg_da_pagina(page):
+    """Lê a página inteira de uma vez, antes de editar qualquer empresa."""
+    try:
+        page.wait_for_load_state("networkidle", timeout=10000)
+    except Exception:
+        pass
+    page.wait_for_function("""() => {
+        const rows = [...document.querySelectorAll('table tbody tr')]
+            .filter(row => row.getBoundingClientRect().height);
+        return rows.length && rows.every(row => !/carregando/i.test(row.innerText));
+    }""", timeout=30000)
+    linhas = page.locator("table:visible").first.locator("tbody").evaluate("""body =>
+        [...body.querySelectorAll('tr')].map(row => {
+            const cells = [...row.querySelectorAll('td')];
+            return {
+                texto: row.innerText,
+                nome: cells[0]?.innerText || '',
+                ativo_sieg: cells[6]?.querySelector('input')?.checked === true,
+            };
+        })
+    """)
+    padrao_documento = re.compile(
+        r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2}|\b\d{14}\b"
+    )
+    empresas = []
+    for linha in linhas:
+        documento = padrao_documento.search(linha["nome"])
+        empresas.append({
+            "nome": re.split(r"\b(?:CNPJ|CPF):", linha["nome"], maxsplit=1)[0].strip(),
+            "cnpj": re.sub(r"\D", "", documento.group()) if documento else "",
+            "ativo_sieg": linha["ativo_sieg"],
+        })
+    return empresas
+
+
+def salvar_base_empresas_sieg(empresas, total_esperado):
+    """Publica os CNPJs ativos após percorrer todas as páginas do SIEG."""
+    identidades = {(str(item.get("cnpj") or ""), item.get("nome") or "") for item in empresas}
+    if total_esperado is None or len(empresas) != total_esperado or len(identidades) != total_esperado:
+        print("Base SIEG não atualizada: a leitura não cobriu todos os cadastros. Mantida a última base completa.")
+        return False
+    ativas = {}
+    for empresa in empresas:
+        documento = re.sub(r"\D", "", str(empresa.get("cnpj") or ""))
+        if empresa.get("ativo_sieg") is not True or len(documento) != 14:
+            continue
+        ativas[documento] = {**empresa, "cnpj": documento}
+    dados = {
+        "completo": True,
+        "atualizado_em": datetime.now().isoformat(),
+        "empresas": list(ativas.values()),
+    }
+    temporario = ARQUIVO_EMPRESAS_SIEG.with_suffix(".tmp")
+    temporario.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    os.replace(temporario, ARQUIVO_EMPRESAS_SIEG)
+    return True
 
 
 def salvar_empresas_sem_certificado(empresas, servico_drive=None):
     """Disponibiliza no painel a lista parcial da execução atual."""
-    unicas = {normalizar_texto(item["nome"]): item for item in empresas}
-    maior_quantidade = len(unicas)
-    try:
-        relatorio_anterior = json.loads(
-            ARQUIVO_RELATORIO_SEM_CERTIFICADO.read_text(encoding="utf-8")
-        )
-        maior_quantidade = max(
-            maior_quantidade,
-            int(relatorio_anterior.get("maior_quantidade", 0)),
-            len(relatorio_anterior.get("empresas", [])),
-        )
-    except (FileNotFoundError, OSError, ValueError, TypeError):
-        pass
+    unicas = {
+        re.sub(r"\D", "", str(item.get("cnpj") or "")) or normalizar_texto(item["nome"]): item
+        for item in empresas
+    }
     conteudo = {
         "atualizado_em": datetime.now().isoformat(),
-        "maior_quantidade": maior_quantidade,
         "empresas": sorted(unicas.values(), key=lambda item: item["nome"]),
     }
     ARQUIVO_RELATORIO_SEM_CERTIFICADO.parent.mkdir(parents=True, exist_ok=True)
@@ -112,6 +155,10 @@ def salvar_empresas_sem_certificado(empresas, servico_drive=None):
 
 def enviar_relatorio_para_drive(servico_drive):
     """Cria ou atualiza o resumo final na pasta configurada do Drive."""
+    if not ID_PASTA_DRIVE_RELATORIO:
+        raise RuntimeError(
+            "Defina AUTO_NC_REPORT_FOLDER_ID no arquivo Auto_NC/.env."
+        )
     nome_arquivo = ARQUIVO_RELATORIO_SEM_CERTIFICADO.name
     resposta = servico_drive.files().list(
         q=(
@@ -158,213 +205,6 @@ def extrair_id_pasta_drive(valor):
     if correspondencia:
         return correspondencia.group(1)
     return valor.split("?", 1)[0].split("#", 1)[0].strip().rstrip("/").split("/")[-1]
-
-
-def clicar_com_rolagem(page, texto_ou_seletor, tentativas_max=5, pixels_scroll=350):
-    """Procura por um elemento. Se não encontrar, rola a tela e tenta novamente."""
-    for i in range(tentativas_max):
-        try:
-            if not texto_ou_seletor.startswith(".") and not texto_ou_seletor.startswith("#") and not texto_ou_seletor.startswith("input") and not texto_ou_seletor.startswith("//"):
-                elemento = page.get_by_text(re.compile(re.escape(texto_ou_seletor), re.IGNORECASE)).first
-            else:
-                elemento = page.locator(texto_ou_seletor).first
-
-            if elemento.is_visible():
-                elemento.scroll_into_view_if_needed()
-                elemento.click()
-                print(f"  └─ Elemento '{texto_ou_seletor}' localizado e clicado.")
-                return True
-        except Exception:
-            pass
-
-        print(f"  └─ '{texto_ou_seletor}' não visível. Rolando tela ({i+1}/{tentativas_max})...")
-        page.evaluate(f"window.scrollBy(0, {pixels_scroll})")
-        time.sleep(1.0)
-
-    print(f"❌ Não foi possível encontrar/clicar em '{texto_ou_seletor}'.")
-    return False
-
-
-def clicar_editar_cadastro(page):
-    """Clica no item aberto pelo menu de tres pontos, inclusive via Vue Teleport."""
-    seletores = [
-        "li:has-text('Editar cadastro')",
-        "[role='menuitem']:has-text('Editar cadastro')",
-        "label:has-text('Editar cadastro')",
-        "xpath=//*[@id='app']/main/section/div/section/section[2]/div[1]/section/div[4]/div[2]/div/div[1]/table/tbody/tr[4]/td[8]/teleport/ul/li[2]",
-    ]
-
-    for seletor in seletores:
-        item = page.locator(seletor).filter(has_text=re.compile(
-            r"Editar\s+cadastro", re.IGNORECASE
-        )).last
-        try:
-            item.wait_for(state="visible", timeout=800)
-            item.click()
-            print("  └─ 'Editar cadastro' localizado e clicado.")
-            return
-        except Exception:
-            continue
-
-    raise RuntimeError(
-        "O menu de opcoes abriu, mas o item 'Editar cadastro' nao ficou visivel."
-    )
-
-
-def abrir_edicao_empresa(page, linha):
-    """Abre a edicao reproduzindo o fluxo funcional do projeto preservado."""
-    print("  Abrindo edicao da empresa...")
-    titulo_edicao = page.get_by_text("Editar CNPJ/CPF", exact=True)
-
-    try:
-        print("  Tentando clique duplo na linha...")
-        linha.scroll_into_view_if_needed()
-        linha.dblclick()
-        titulo_edicao.wait_for(state="visible", timeout=5000)
-        print("  Edicao aberta via clique duplo.")
-        return True
-    except Exception as err:
-        if titulo_edicao.count() and titulo_edicao.last.is_visible():
-            print("  Edicao aberta via clique duplo.")
-            return True
-        print(f"  Clique duplo nao abriu a edicao: {err}")
-
-    try:
-        print("  Tentando abrir o menu de opcoes...")
-        botoes = linha.locator("td:last-child button")
-        btn_opcoes = None
-        for indice in range(botoes.count()):
-            candidato = botoes.nth(indice)
-            if candidato.is_visible():
-                btn_opcoes = candidato
-                break
-
-        if btn_opcoes is None:
-            raise RuntimeError("botao de opcoes da linha nao encontrado")
-
-        btn_opcoes.scroll_into_view_if_needed()
-        btn_opcoes.click()
-        print("  Menu de opcoes aberto.")
-
-        itens_editar = page.get_by_text("Editar cadastro", exact=True)
-        item_visivel = None
-        for indice in range(itens_editar.count()):
-            candidato = itens_editar.nth(indice)
-            if candidato.is_visible():
-                item_visivel = candidato
-                break
-
-        if item_visivel is None:
-            raise RuntimeError("opcao 'Editar cadastro' nao encontrada no menu")
-
-        item_visivel.click()
-        titulo_edicao.last.wait_for(state="visible", timeout=10000)
-        print("  'Editar cadastro' aberto.")
-        return True
-    except Exception as err:
-        print(f"  Erro ao abrir edicao pelo menu: {err}")
-        return False
-
-
-def preencher_uf_se_necessario(page):
-    """Preenche a UF com CE somente quando o campo estiver vazio."""
-    seletores = (
-        "select[name*='uf' i], select[id*='uf' i], "
-        "input[name*='uf' i], input[id*='uf' i], "
-        "[role='combobox'][name*='uf' i], [role='combobox'][id*='uf' i], "
-        "input[placeholder*='UF' i], [aria-label*='UF' i]"
-    )
-    campo_uf = None
-
-    # A tela pode montar o formulario alguns segundos depois de abrir a edicao.
-    xpath_label_estado = (
-        "xpath=/html/body/div[5]/div/div[2]/section[2]/section/div[1]/"
-        "fieldset/label[4]"
-    )
-    for _ in range(10):
-        label_estado = page.locator(xpath_label_estado)
-        if not label_estado.count():
-            label_estado = page.locator("label").filter(
-                has_text=re.compile(r"\bEstado\b", re.IGNORECASE)
-            ).last
-
-        valor_do_estado = label_estado.locator("xpath=./div/div/div")
-        controle_do_estado = label_estado.locator(
-            "select, input, [role='combobox']"
-        )
-        grupos_candidatos = [
-            valor_do_estado,
-            controle_do_estado,
-            page.locator(seletores),
-        ]
-        for candidatos in grupos_candidatos:
-            # Dentro do label, os componentes visuais mais internos costumam
-            # aparecer por ultimo e recebem o clique do dropdown.
-            indices = range(candidatos.count() - 1, -1, -1)
-            for indice in indices:
-                candidato = candidatos.nth(indice)
-                if candidato.is_visible():
-                    campo_uf = candidato
-                    break
-            if campo_uf:
-                break
-        if campo_uf:
-            break
-
-        # Fallback para componentes cujo campo nao possui "uf" no id/name.
-        rotulos = page.locator("label").filter(
-            has_text=re.compile(r"^\s*(UF|Estado)\s*:?\s*$", re.IGNORECASE)
-        )
-        for indice in range(rotulos.count()):
-            rotulo = rotulos.nth(indice)
-            id_campo = rotulo.get_attribute("for")
-            proximos = (
-                page.locator(f"#{id_campo}") if id_campo
-                else rotulo.locator("xpath=..").locator("select, input, [role='combobox'], button")
-            )
-            if proximos.count() and proximos.first.is_visible():
-                campo_uf = proximos.first
-                break
-        if campo_uf:
-            break
-        page.wait_for_timeout(1000)
-
-    if not campo_uf:
-        raise RuntimeError("Campo de UF nao foi encontrado apos aguardar a tela de edicao.")
-
-    tag = campo_uf.evaluate("element => element.tagName.toLowerCase()")
-    if tag in ("input", "select", "textarea"):
-        valor_atual = (campo_uf.input_value() or "").strip()
-    else:
-        valor_atual = (campo_uf.text_content() or "").strip()
-    valor_normalizado = normalizar_texto(valor_atual)
-    valores_vazios = {"", "SELECIONE", "SELECIONAR", "UF", "ESTADO"}
-    esta_vazio = (
-        valor_normalizado in valores_vazios
-        or valor_normalizado.startswith("SELECIONE")
-    )
-    if not esta_vazio:
-        print(f"PASSO 8/9: UF ja preenchida com '{valor_atual}'.")
-        return
-
-    print("PASSO 8/9: UF vazia. Preenchendo como 'CE'...")
-    if tag == "select":
-        try:
-            campo_uf.select_option("CE")
-        except Exception:
-            campo_uf.select_option(label=re.compile(r"^\s*CE\s*$", re.IGNORECASE))
-        return
-
-    campo_uf.click()
-    if tag in ("input", "textarea"):
-        campo_uf.fill("CE")
-    nome_ce = re.compile(r"^\s*(CE|Cear[aá])\s*$", re.IGNORECASE)
-    opcao_ce = page.get_by_role("option", name=nome_ce).last
-    try:
-        opcao_ce.wait_for(state="visible", timeout=3000)
-        opcao_ce.click()
-    except Exception:
-        page.get_by_text(nome_ce).last.click()
 
 
 def retornar_para_listagem(page, forcar_recarregamento=False):
@@ -414,208 +254,42 @@ def obter_status_certificado(page, linha):
     return " ".join(celulas.nth(1).inner_text().split())
 
 
-def fazer_login_sieg(page):
-    """Preenche o login do SIEG com as credenciais configuradas no .env."""
-    if not SIEG_EMAIL or not SIEG_SENHA:
-        raise RuntimeError("Defina SIEG_EMAIL e SIEG_SENHA no arquivo .env.")
-
-    campo_email = page.locator(
-        "input[type='email'], input[name*='email' i], input[id*='email' i]"
-    ).first
-    campo_senha = page.locator("input[type='password']").first
-
-    if not campo_email.is_visible() or not campo_senha.is_visible():
-        print("Sessão do SIEG já está autenticada.")
-        return
-
-    campo_email.fill(SIEG_EMAIL)
-    campo_senha.fill(SIEG_SENHA)
-    botao_login = page.get_by_role(
-        "button", name=re.compile(r"entrar|login|acessar", re.IGNORECASE)
-    ).first
-    botao_login.click()
-    page.wait_for_load_state("domcontentloaded")
-    print("Login do SIEG realizado automaticamente.")
-
-
-def ler_senha_arquivo(caminho_arquivo):
-    """Lê a senha contida em arquivos .txt ou .docx/.doc."""
-    try:
-        extensao = caminho_arquivo.suffix.lower()
-
-        if extensao == ".txt":
-            with open(caminho_arquivo, "r", encoding="utf-8", errors="ignore") as f:
-                return f.read().strip()
-
-        elif extensao in [".docx", ".doc"]:
-            doc = Document(caminho_arquivo)
-            linhas = [p.text.strip() for p in doc.paragraphs if p.text.strip()]
-            return " ".join(linhas).strip()
-
-    except Exception as e:
-        print(f"[ERRO] Falha ao ler arquivo de senha {caminho_arquivo}: {e}")
-        return None
-
-
-def autenticar_google_drive():
-    """Autentica no Google Drive e reutiliza o token salvo localmente."""
-    credenciais = None
-    if ARQUIVO_TOKEN_GOOGLE.exists():
-        credenciais = Credentials.from_authorized_user_file(
-            ARQUIVO_TOKEN_GOOGLE, ESCOPO_GOOGLE_DRIVE
-        )
-        if not credenciais.has_scopes(ESCOPO_GOOGLE_DRIVE):
-            print("O token atual não possui permissão para gravar o relatório no Drive.")
-            credenciais = None
-
-    if not credenciais or not credenciais.valid:
-        if credenciais and credenciais.expired and credenciais.refresh_token:
-            try:
-                credenciais.refresh(Request())
-            except RefreshError as erro:
-                print(
-                    "Token do Google Drive incompatível ou expirado; "
-                    "uma nova autorização será solicitada."
-                )
-                print(f"Detalhe da renovação: {erro}")
-                credenciais = None
-
-        if not credenciais or not credenciais.valid:
-            if not ARQUIVO_CREDENCIAIS_GOOGLE.exists():
-                raise FileNotFoundError(
-                    f"Credenciais do Google não encontradas: {ARQUIVO_CREDENCIAIS_GOOGLE}"
-                )
-            fluxo = InstalledAppFlow.from_client_secrets_file(
-                ARQUIVO_CREDENCIAIS_GOOGLE, ESCOPO_GOOGLE_DRIVE
-            )
-            credenciais = fluxo.run_local_server(port=0)
-
-        ARQUIVO_TOKEN_GOOGLE.write_text(credenciais.to_json(), encoding="utf-8")
-
-    return build("drive", "v3", credentials=credenciais)
-
-
-def listar_itens_drive(servico_drive, id_pasta, mime_type=None):
-    """Lista itens diretamente dentro de uma pasta do Google Drive."""
-    consulta = f"'{id_pasta}' in parents and trashed = false"
-    if mime_type:
-        consulta += f" and mimeType = '{mime_type}'"
-
-    itens = []
-    pagina = None
-    while True:
-        resposta = servico_drive.files().list(
-            q=consulta,
-            spaces="drive",
-            fields="nextPageToken, files(id, name, mimeType)",
-            pageToken=pagina,
-            pageSize=1000,
-        ).execute()
-        itens.extend(resposta.get("files", []))
-        pagina = resposta.get("nextPageToken")
-        if not pagina:
-            return itens
-
-
-def baixar_arquivo_drive(servico_drive, arquivo):
-    """Baixa um arquivo do Drive para o diretório temporário da automação."""
-    PASTA_TEMPORARIA_DRIVE.mkdir(parents=True, exist_ok=True)
-    destino = PASTA_TEMPORARIA_DRIVE / f"{arquivo['id']}_{arquivo['name']}"
-    requisicao = servico_drive.files().get_media(fileId=arquivo["id"])
-    with destino.open("wb") as arquivo_local:
-        download = MediaIoBaseDownload(arquivo_local, requisicao)
-        concluido = False
-        while not concluido:
-            _, concluido = download.next_chunk()
-    return destino
-
-
-def exportar_google_doc_como_texto(servico_drive, arquivo):
-    """Le a senha quando ela esta armazenada como Google Docs nativo."""
-    requisicao = servico_drive.files().export_media(
-        fileId=arquivo["id"], mimeType="text/plain"
-    )
-    with tempfile.TemporaryFile() as arquivo_temporario:
-        download = MediaIoBaseDownload(arquivo_temporario, requisicao)
-        concluido = False
-        while not concluido:
-            _, concluido = download.next_chunk()
-        arquivo_temporario.seek(0)
-        return arquivo_temporario.read().decode("utf-8-sig", errors="ignore").strip()
-
-
-def buscar_arquivos_por_nome_empresa(nome_empresa_alvo, servico_drive, id_pasta_raiz):
-    """Busca a pasta da empresa no Drive e baixa o .pfx e a senha."""
-    nome_alvo_norm = normalizar_texto(nome_empresa_alvo)
-
-    pastas_empresa = listar_itens_drive(
-        servico_drive,
-        id_pasta_raiz,
-        "application/vnd.google-apps.folder",
-    )
-    pastas_candidatas = []
-    for pasta_empresa in pastas_empresa:
-        nome_pasta_norm = normalizar_texto(pasta_empresa["name"])
-        if nome_alvo_norm in nome_pasta_norm or nome_pasta_norm in nome_alvo_norm:
-            pastas_candidatas.append(pasta_empresa)
-
-    # Prefere o nome exato, mas continua tentando as demais pastas semelhantes
-    # quando a primeira nao possui todos os arquivos necessarios.
-    pastas_candidatas.sort(
-        key=lambda pasta: (
-            normalizar_texto(pasta["name"]) != nome_alvo_norm,
-            len(normalizar_texto(pasta["name"])),
-        )
-    )
-
-    for pasta_empresa in pastas_candidatas:
-            print(f"  Verificando pasta no Drive: {pasta_empresa['name']}")
-            arquivos = listar_itens_drive(servico_drive, pasta_empresa["id"])
-            arquivos_pfx = [
-                f for f in arquivos if f["name"].lower().endswith((".pfx", ".p12"))
-            ]
-            arquivos_senha = [
-                f for f in arquivos
-                if f.get("mimeType") == "application/vnd.google-apps.document"
-                or f["name"].lower().endswith((".txt", ".docx", ".doc"))
-            ]
-
-            if not arquivos_pfx:
-                print("    Nenhum arquivo .pfx/.p12 encontrado nessa pasta.")
-                continue
-            if not arquivos_senha:
-                print("    Nenhum arquivo de senha encontrado nessa pasta.")
-                continue
-
-            caminho_pfx = str(baixar_arquivo_drive(servico_drive, arquivos_pfx[0]))
-            arquivo_senha = arquivos_senha[0]
-            if arquivo_senha.get("mimeType") == "application/vnd.google-apps.document":
-                senha = exportar_google_doc_como_texto(servico_drive, arquivo_senha)
-            else:
-                caminho_senha = baixar_arquivo_drive(servico_drive, arquivo_senha)
-                senha = ler_senha_arquivo(caminho_senha)
-
-            if senha:
-                return caminho_pfx, senha
-            print(f"    Arquivo de senha vazio ou ilegivel: {arquivo_senha['name']}")
-
-    return None, None
-
-
 # ---------------------------------------------------------
 # FLUXO PRINCIPAL DE AUTOMAÇÃO NO SIEG
 # ---------------------------------------------------------
+
+def fazer_login_sieg(page):
+    if not realizar_login_sieg(page, SIEG_EMAIL, SIEG_SENHA):
+        raise RuntimeError("Falha ao autenticar no SIEG.")
+
+
+def autenticar_google_drive():
+    return cliente_drive.autenticar_drive(
+        ARQUIVO_CREDENCIAIS_GOOGLE, ARQUIVO_TOKEN_GOOGLE, ESCOPO_GOOGLE_DRIVE,
+    )
+
+
+def buscar_arquivos_por_nome_empresa(nome_empresa_alvo, servico_drive, id_pasta_raiz):
+    return cliente_drive.buscar_arquivos_por_nome_empresa(
+        nome_empresa_alvo, servico_drive, id_pasta_raiz, PASTA_TEMPORARIA_DRIVE,
+    )
+
+
 def executar_automacao_sieg_cadastro_a1():
     empresas_sem_certificado = []
+    empresas_sieg = []
+    total_empresas_sieg = None
     id_pasta_raiz = ID_PASTA_DRIVE_CERTIFICADOS
-    if not id_pasta_raiz and os.getenv("MODO_AUTOMATICO", "").lower() == "sim":
+    ausentes = [
+        nome for nome, valor in (
+            ("GOOGLE_DRIVE_FOLDER_ID", id_pasta_raiz),
+            ("AUTO_NC_REPORT_FOLDER_ID", ID_PASTA_DRIVE_RELATORIO),
+        ) if not valor
+    ]
+    if ausentes:
         raise RuntimeError(
-            "Defina GOOGLE_DRIVE_FOLDER_ID no arquivo Auto_NC/.env "
-            "com a pasta exclusiva da Auto_NC."
+            f"Defina {', '.join(ausentes)} no arquivo Auto_NC/.env."
         )
-    id_pasta_raiz = id_pasta_raiz or input(
-        "Informe o ID ou a URL da pasta raiz do Google Drive: "
-    ).strip()
     id_pasta_raiz = extrair_id_pasta_drive(id_pasta_raiz)
     if not id_pasta_raiz:
         raise RuntimeError("O ID da pasta raiz do Google Drive não foi informado.")
@@ -680,6 +354,15 @@ def executar_automacao_sieg_cadastro_a1():
             time.sleep(TIME_CURTO)
             page.wait_for_selector("table")
 
+            empresas_sieg.extend(ler_empresas_sieg_da_pagina(page))
+            if total_empresas_sieg is None:
+                rodape = page.locator(
+                    "xpath=//*[@id='app']/main/section/div/section/section[2]/"
+                    "div[1]/section/div[4]/div[2]/div/nav"
+                ).inner_text()
+                total_encontrado = re.search(r"\bde\s+([\d.,]+)", rodape, re.IGNORECASE)
+                if total_encontrado:
+                    total_empresas_sieg = int(re.sub(r"\D", "", total_encontrado.group(1)))
             linhas_empresas = page.locator("tbody tr:visible").all()
             print(f"Total de empresas encontradas na lista visível: {len(linhas_empresas)}")
 
@@ -877,10 +560,10 @@ def executar_automacao_sieg_cadastro_a1():
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(TIME_CURTO)
 
-            # Localiza a seta de 'Próxima página' pelo XPath da paginação.
+            # A seta é o último botão; a quantidade de páginas numéricas varia.
             btn_proxima_pagina = page.locator(
                 "xpath=//*[@id='app']/main/section/div/section/section[2]/"
-                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[1]/button[7]"
+                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[1]/button[last()]"
             )
 
             if btn_proxima_pagina.is_visible() and btn_proxima_pagina.is_enabled():
@@ -892,6 +575,7 @@ def executar_automacao_sieg_cadastro_a1():
                 print("\n🏁 Não há mais páginas para avançar. Automação concluída!")
                 break
 
+        salvar_base_empresas_sieg(empresas_sieg, total_empresas_sieg)
         salvar_empresas_sem_certificado(empresas_sem_certificado, servico_drive)
         print("\n🎉 Processo finalizado com sucesso em todas as páginas!")
         browser.close()
