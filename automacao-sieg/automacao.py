@@ -3,7 +3,10 @@ import re
 import time
 from playwright.sync_api import sync_playwright
 
-from config import ARQUIVO_ENV, DRIVE_ROOT_FOLDER_ID
+from config import (
+    ARQUIVO_ENV, DRIVE_ROOT_FOLDER_ID, SIEG_SLOW_MO_MS, SIEG_UF_PADRAO,
+    validar_pastas_drive,
+)
 from drive_service import (
     autenticar_drive,
     criar_indice_pastas_drive,
@@ -29,24 +32,19 @@ from sieg_service import (
     forcar_fechamento_modais,
     localizar_linha_por_cnpj,
     obter_rejeicao_certificado,
-    preencher_uf_ce,
+    preencher_uf,
     realizar_login_sieg,
     voltar_para_tabela_empresas,
 )
 from utilitarios import extrair_cnpj, normalizar_texto
+from sieg_comum.modais import modal_visivel, botao_modal, campo_upload_modal
 
 
 def garantir_input_ativo(
-    page, xpath, descricao, xpath_alternativo=None, *,
+    page, descricao, *, rotulo=None, seletor_sem_rotulo=None,
     verificar_rejeicao=False, timeout_ms=15000,
 ):
-    """Marca um checkbox/radio apenas quando ele ainda não estiver selecionado."""
-    # O índice do modal no body muda quando o SIEG abre/fecha outros diálogos.
-    caminhos = list(dict.fromkeys(
-        re.sub(r"^/html/body/div\[\d+\]", "/html/body/div", caminho)
-        for caminho in (xpath, xpath_alternativo) if caminho
-    ))
-    campos = page.locator("xpath=" + " | ".join(caminhos))
+    """Marca somente a opcao identificada dentro do ultimo dialogo visivel."""
     limite = time.monotonic() + timeout_ms / 1000
     while time.monotonic() < limite:
         if verificar_rejeicao:
@@ -54,6 +52,17 @@ def garantir_input_ativo(
             if rejeicao:
                 raise CertificadoRejeitadoError(rejeicao)
 
+        modal = modal_visivel(page, timeout=min(timeout_ms, 1000))
+        if rotulo is not None:
+            campos = modal.get_by_role("checkbox", name=rotulo).or_(
+                modal.get_by_role("radio", name=rotulo)
+            ).or_(modal.get_by_label(rotulo).and_(modal.locator("input[type='checkbox'], input[type='radio']")))
+        elif seletor_sem_rotulo:
+            # Compatibilidade temporária: o código legado não registrava os
+            # rótulos destas opções. O caminho fica restrito ao diálogo ativo.
+            campos = modal.locator(seletor_sem_rotulo)
+        else:
+            raise ValueError("Informe o rotulo da opcao a marcar.")
         visiveis = [campo for campo in campos.all() if campo.is_visible()]
         if len(visiveis) == 1:
             campo = visiveis[0]
@@ -74,9 +83,7 @@ def garantir_input_ativo(
 
 def clicar_salvar_e_continuar(page, etapa):
     """Clica no botão exato da etapa atual e aguarda a interface avançar."""
-    botao = page.get_by_role(
-        "button", name="Salvar e continuar", exact=True
-    ).last
+    botao = botao_modal(page, "Salvar e continuar")
     botao.wait_for(state="visible", timeout=15000)
     botao.scroll_into_view_if_needed()
     print(f"  Salvando e continuando ({etapa})...")
@@ -98,24 +105,14 @@ def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
     if not abrir_edicao_empresa(page, linha):
         raise RuntimeError("Não foi possível abrir a edição da empresa")
 
-    if not preencher_uf_ce(page):
-        raise RuntimeError("Não foi possível selecionar a UF CE")
+    if not preencher_uf(page, SIEG_UF_PADRAO):
+        raise RuntimeError(f"Não foi possível selecionar a UF {SIEG_UF_PADRAO}")
 
-    botao_salvar = page.locator("button:visible").filter(
-        has_text="Salvar e continuar"
-    ).last
-    botao_salvar.wait_for(state="visible", timeout=10000)
-    botao_salvar.scroll_into_view_if_needed()
-    botao_salvar.click()
-    aguardar_interface_pronta(page)
+    clicar_salvar_e_continuar(page, "cadastro")
 
     garantir_input_ativo(
-        page,
-        "/html/body/div[5]/div/div[2]/section[2]/section/div/label/input",
-        "atualização do certificado",
-        "/html/body/div[.//text()[normalize-space()='Vencido' or "
-        "normalize-space()='VENCIDO']]"
-        "//section[2]/section/div/label/input",
+        page, "atualizacao do certificado",
+        seletor_sem_rotulo="xpath=.//section[2]/section/div/label/input",
     )
 
     if not clicar_botao_atualizar_certificado(page):
@@ -127,11 +124,7 @@ def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
 def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
     """Envia um candidato; apenas uma rejeição explícita permite tentar outro."""
     preparar_tela_upload_certificado(page, cnpj, nome_empresa)
-    campo_file = page.locator(
-        "[role='dialog']:visible input[type='file'], "
-        "div[class*='modal']:visible input[type='file'], "
-        "div[class*='drawer']:visible input[type='file']"
-    ).last
+    campo_file = campo_upload_modal(page, "file")
     campo_file.wait_for(state="attached", timeout=15000)
     campo_file.set_input_files({
         "name": candidato["arquivo_nome"],
@@ -139,11 +132,7 @@ def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
         "buffer": candidato["pfx_bytes"],
     })
 
-    campo_pass = page.locator(
-        "[role='dialog']:visible input[type='password']:visible, "
-        "div[class*='modal']:visible input[type='password']:visible, "
-        "div[class*='drawer']:visible input[type='password']:visible"
-    ).last
+    campo_pass = campo_upload_modal(page, "password")
     campo_pass.wait_for(state="visible", timeout=15000)
     campo_pass.fill(candidato["senha"])
     campo_pass.dispatch_event("input")
@@ -160,17 +149,13 @@ def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
     try:
         clicar_salvar_e_continuar(page, "certificado")
         garantir_input_ativo(
-            page,
-            "/html/body/div[6]/div/div[2]/section[2]/"
-            "div/div[3]/div[2]/div[1]/div[2]/input",
-            "primeira opção da etapa",
+            page, "Docs Fiscais/HUB",
+            rotulo=re.compile(r"^\s*Docs\s+Fiscais\s*\/\s*HUB\s*$", re.IGNORECASE),
             verificar_rejeicao=True,
         )
         garantir_input_ativo(
-            page,
-            "/html/body/div[6]/div/div[2]/section[2]/"
-            "div/div[3]/div[2]/div[2]/div[2]/label[1]/input",
-            "segunda opção da etapa",
+            page, "Controle de Pendências/Iris",
+            rotulo=re.compile(r"^\s*Controle\s+de\s+Pend[eê]ncias\s*\/\s*Iris\s*$", re.IGNORECASE),
             verificar_rejeicao=True,
         )
     except CertificadoRejeitadoError:
@@ -189,6 +174,9 @@ def executar_automacao_sieg():
     senha_sieg = os.getenv("SIEG_SENHA")
     if not email_sieg or not senha_sieg:
         raise RuntimeError(f"Preencha SIEG_EMAIL e SIEG_SENHA no arquivo {ARQUIVO_ENV}")
+    if not SIEG_UF_PADRAO:
+        raise RuntimeError(f"Defina SIEG_UF_PADRAO no arquivo {ARQUIVO_ENV}")
+    validar_pastas_drive()
 
     # Autentica no Google Drive
     service = autenticar_drive()
@@ -198,7 +186,8 @@ def executar_automacao_sieg():
     print(f"✅ {indice_drive['total']} pasta(s) indexada(s) em uma única consulta.")
 
     with sync_playwright() as p:
-        browser = p.chromium.launch(headless=True, slow_mo=300)
+        print(f"⏱️ Atraso adicional do Playwright: {SIEG_SLOW_MO_MS} ms por ação")
+        browser = p.chromium.launch(headless=True, slow_mo=SIEG_SLOW_MO_MS)
         page = browser.new_page()
         page.set_default_navigation_timeout(100000)
 
@@ -303,6 +292,7 @@ def executar_automacao_sieg():
         falhas = 0
         ignorados = 0
         empresas_sucesso = []
+        empresas_ignoradas = []
         falhas_detalhes = []
         cnpjs_processados = carregar_cnpjs_processados()
         if cnpjs_processados:
@@ -315,6 +305,7 @@ def executar_automacao_sieg():
             if cnpj in cnpjs_processados:
                 print("⏭️ Empresa já processada com sucesso hoje. Pulando.")
                 ignorados += 1
+                empresas_ignoradas.append({"cnpj": cnpj, "nome": nome_empresa})
                 continue
 
             # Fecha modais pendentes
@@ -392,24 +383,19 @@ def executar_automacao_sieg():
 
                 # Confirma a opção final antes de concluir o assistente.
                 garantir_input_ativo(
-                    page,
-                    "/html/body/div[6]/div/div[2]/section[2]/section/"
-                    "div[2]/div/div/label[1]/input",
-                    "opção final",
+                    page, "NFS-e Portal Nacional",
+                    rotulo=re.compile(r"^\s*NFS-e\s+Portal\s+Nacional\s*$", re.IGNORECASE),
                 )
 
                 # "Concluir" pertence à etapa seguinte e só pode ser clicado
                 # depois que todas as etapas anteriores forem salvas.
-                botao_concluir = page.get_by_role(
-                    "button", name="Concluir", exact=True
-                ).last
+                botao_concluir = botao_modal(page, "Concluir", timeout=30000)
                 botao_concluir.wait_for(state="visible", timeout=30000)
                 print("  Etapas salvas. Clicando em 'Concluir'...")
                 botao_concluir.scroll_into_view_if_needed()
                 botao_concluir.click()
                 aguardar_interface_pronta(page)
-                if not clicar_com_rolagem(page, "Confirmar e finalizar"):
-                    raise RuntimeError("Não foi possível clicar em 'Confirmar e finalizar'")
+                botao_modal(page, "Confirmar e finalizar").click()
                 aguardar_interface_pronta(page, timeout=30000)
                 page.locator("table:visible").first.wait_for(state="visible", timeout=30000)
 
@@ -436,6 +422,7 @@ def executar_automacao_sieg():
             ignorados,
             service,
             empresas_sucesso=empresas_sucesso,
+            empresas_ignoradas=empresas_ignoradas,
             quantidade_certas=quantidade_certas,
         )
 

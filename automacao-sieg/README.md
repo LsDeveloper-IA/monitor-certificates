@@ -1,100 +1,61 @@
-# Automação SIEG — modular com lógica preservada
+# Automação de Certificados Vencidos no SIEG
 
-Esta versão divide o código em módulos, mas preserva exatamente os corpos das funções da versão de arquivo único.
+Automação Playwright que consulta certificados vencidos no SIEG, localiza
+candidatos no Google Drive e atualiza o cadastro da empresa. O navegador roda
+em modo invisível (`headless`).
 
-## Estrutura
+## Fluxo
 
-```text
-ProjetoOfficeModularPreservado/
-├── main.py
-├── automacao.py
-├── sieg_service.py
-├── drive_service.py
-├── utilitarios.py
-├── persistencia.py
-├── config.py
-├── __init__.py
-├── .env
-├── .env.example
-├── .gitignore
-├── requirements.txt
-└── README.md
-```
+1. Autentica no Google Drive e cria um índice das pastas das empresas.
+2. Entra no SIEG e abre `Gerenciar CNPJs/CPFs`.
+3. Filtra empresas com certificado vencido e exibe até 200 linhas.
+4. Confirma o CNPJ da linha antes de abrir a edição.
+5. Preenche a UF configurada somente quando o cadastro estiver vazio.
+6. Testa os certificados candidatos em ordem de similaridade.
+7. Conclui as opções `Docs Fiscais/HUB`, `Controle de Pendências/Iris` e
+   `NFS-e Portal Nacional` no diálogo ativo.
+8. Registra checkpoint, relatório e evidências de falha.
 
-## Responsabilidades
-
-| Arquivo | Conteúdo |
-| --- | --- |
-| `main.py` | Inicialização e tentativas completas. |
-| `automacao.py` | Fluxo principal de processamento. |
-| `sieg_service.py` | Funções de interação com o SIEG. |
-| `drive_service.py` | Autenticação, arquivos, certificados e Google Docs. |
-| `utilitarios.py` | Normalização, CNPJ e validade do certificado. |
-| `persistencia.py` | Checkpoint, evidências de erro e resumo da execução. |
-| `config.py` | Constantes, caminhos e leitura do `.env`. |
+Uma rejeição explícita de senha ou certificado permite testar o próximo
+candidato. Se a resposta do SIEG for inconclusiva após o upload, nenhum outro
+arquivo é enviado para aquela empresa, pois a atualização pode já ter sido
+salva.
 
 ## Configuração
 
-Preencha o arquivo `.env`:
+Copie `.env.example` para `.env`:
 
 ```env
 SIEG_EMAIL=seu-email
 SIEG_SENHA=sua-senha
+SIEG_SLOW_MO_MS=0
+SIEG_UF_PADRAO=CE
+DRIVE_ROOT_FOLDER_ID=id-da-pasta-das-empresas
+DRIVE_RELATORIOS_FOLDER_ID=id-da-pasta-de-relatorios
 ```
 
-Coloque `credentials.json` na mesma pasta. Se já existir um `token.pickle` autorizado, copie-o também.
+Os IDs das pastas e `SIEG_UF_PADRAO` são obrigatórios. A UF aceita qualquer
+sigla brasileira; ela não substitui um Estado já preenchido no SIEG.
 
-## Instalação
+Coloque `credentials.json` nesta pasta. Na primeira autorização, o fluxo OAuth
+gera `token.json`; as execuções seguintes usam esse arquivo seguro em JSON.
 
-```bash
+`SIEG_SLOW_MO_MS` adiciona atraso após ações do Playwright. Use `0` para a
+execução normal e aumente somente se uma medição real indicar instabilidade.
+
+## Instalação e execução isolada
+
+```powershell
 python -m pip install -r requirements.txt
 python -m playwright install chromium
-```
-
-## Execução
-
-```bash
 python main.py
 ```
 
-## Acréscimos mantidos
+O `main.py` faz até três tentativas completas. O intervalo cresce a cada falha.
+Quando iniciada pelo painel, esta automação sempre termina antes de `Auto_NC`
+começar.
 
-- Credenciais do SIEG pelo `.env`.
-- Senha do certificado em Google Docs nativo.
-- Até três tentativas para erros não tratados.
-- Caminhos de autenticação relativos à pasta do projeto.
-- Confirmação do CNPJ da linha antes do upload do certificado.
-- Validação explícita da mensagem de sucesso ou erro da senha do certificado.
-- Retomada automática dos CNPJs concluídos no mesmo dia.
-- Foto e HTML da tela em cada falha, além de resumo detalhado ao final.
-- Resumo JSON com a quantidade de empresas do Drive não listadas no SIEG (`certas`).
-- Índice em memória das pastas do Drive, criado uma vez por execução.
-- Cache do resultado de cada pasta do Drive para evitar consultas repetidas.
-- Tentativa sequencial dos certificados de todas as pastas com similaridade de
-  nome igual ou superior a 85%, sempre priorizando nomes exatos.
-- Quando existe correspondência de 100%, as pastas com pontuação inferior não
-  são lidas nem testadas.
-- Razões sociais abreviadas são tratadas como equivalentes quando dois ou mais
-  termos distintivos formam exatamente o início do nome completo.
-- Esperas inteligentes baseadas em elementos visíveis, carregamento da rede,
-  modais, tabelas, campos e indicadores de processamento.
-
-## Otimizações de execução
-
-Ao iniciar, a automação lista a pasta raiz do Google Drive uma única vez e cria
-um índice de nomes normalizados. Durante o processamento, pastas exatas ou com
-pelo menos 85% de similaridade são testadas da maior para a menor pontuação.
-O resultado da leitura de cada pasta também fica em cache durante a execução.
-
-As pausas fixas da interface foram substituídas por esperas condicionais do
-Playwright. O programa continua assim que o estado esperado aparece e gera uma
-falha por timeout quando a tela não chega ao estado necessário. A única espera
-fixa restante é o intervalo entre tentativas completas em `main.py`, pois ela
-representa a política de retentativa e não o carregamento da interface.
-
-## Retomada e relatórios
-
-Durante a execução, o programa cria automaticamente a pasta `registros/`:
+## Retomada e arquivos gerados
 
 ```text
 registros/
@@ -105,18 +66,22 @@ registros/
     └── erro_CNPJ_DATA_HORA.html
 ```
 
-O `checkpoint.json` registra cada CNPJ somente depois que todo o fluxo da empresa termina com sucesso. Se o programa cair e for iniciado novamente no mesmo dia, esses CNPJs serão pulados. No dia seguinte, um novo checkpoint diário começa automaticamente.
+O checkpoint recebe o CNPJ somente após o fluxo inteiro terminar. CNPJs já
+concluídos no dia são ignorados em uma nova tentativa. O resumo também é
+enviado para `DRIVE_RELATORIOS_FOLDER_ID`.
 
-Depois de preencher a senha do certificado, a automação espera por até 30 segundos por uma mensagem explícita do SIEG. Somente uma rejeição explícita permite voltar à tabela e testar o próximo candidato de alta similaridade. Se a validação ficar inconclusiva ou ocorrer uma falha de navegação após o envio, a empresa recebe esse motivo no relatório e nenhum outro certificado é enviado nessa tentativa, pois a atualização pode já ter sido salva.
+## Seletores e código compartilhado
 
-As opções do assistente são localizadas pela estrutura do campo entre os modais visíveis, sem depender da posição do modal no `body`. O sucesso e o checkpoint continuam sendo registrados somente depois de concluir todas as etapas e confirmar a finalização.
+Modais são localizados pelo último diálogo visível. Botões e opções usam papel,
+rótulo ou tooltip, evitando índices absolutos como `div[5]` e `div[6]`. Login,
+navegação, UF e Google Drive ficam em `sieg_comum/`.
 
-O arquivo `resumo_*.txt` contém totais, CNPJs, nomes, motivos das falhas e caminhos das respectivas evidências.
+## Testes
 
-## Garantia de preservação
+```powershell
+python -X utf8 -m unittest discover -s tests
+```
 
-A divisão move apenas as funções para arquivos responsáveis e acrescenta os imports necessários. Os corpos das funções são comparados automaticamente com o `Pronto.py` de referência para garantir que seletores, cliques, tempos, condições e ordem do fluxo não mudaram.
-
-## Segurança
-
-O `.env`, `credentials.json` e `token.pickle` estão no `.gitignore` e não devem ser enviados ao GitHub.
+Os testes usam páginas locais e mocks; não fazem login nem upload real.
+Credenciais, tokens, checkpoints, relatórios e evidências não devem ser
+versionados.

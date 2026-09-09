@@ -13,6 +13,7 @@ from dotenv import dotenv_values
 
 
 class ExecutorAutomacao:
+    _CODIGO_NAO_EXECUTADO = -2
     _ETAPAS_PROGRESSO = (
         ("consultando dados dos clientes", "Consultando dados dos clientes", 45),
         ("sincroniza", "Sincronizando certificados com o painel", 65),
@@ -40,6 +41,7 @@ class ExecutorAutomacao:
         pasta_motor=None,
         pastas_motores=None,
         nomes_motores=None,
+        ordem_motores=None,
     ):
         self._lock = threading.Lock()
         self._processo = None
@@ -54,6 +56,18 @@ class ExecutorAutomacao:
             else None
         )
         self._nomes_motores = dict(nomes_motores or {})
+        motores_configurados = list(self.pastas_motores)
+        ordem_informada = list(ordem_motores or motores_configurados)
+        self._ordem_motores = [
+            identificador
+            for identificador in ordem_informada
+            if identificador in motores_configurados
+        ]
+        self._ordem_motores.extend(
+            identificador
+            for identificador in motores_configurados
+            if identificador not in self._ordem_motores
+        )
         self._logs_por_automacao = {
             nome: deque(maxlen=300) for nome in self.pastas_motores
         }
@@ -308,7 +322,7 @@ class ExecutorAutomacao:
     def parar(self):
         with self._lock:
             processos = list(self._processos.values())
-            if not self._executando or not processos:
+            if not self._executando:
                 return False
             self._interrompida = True
             for processo in processos:
@@ -381,9 +395,29 @@ class ExecutorAutomacao:
 
         try:
             resultados = {}
-            threads = []
 
-            def acompanhar(identificador, pasta):
+            for indice, identificador in enumerate(self._ordem_motores, start=1):
+                pasta = self.pastas_motores[identificador]
+                with self._lock:
+                    interrompida = self._interrompida
+                if interrompida:
+                    resultados[identificador] = self._CODIGO_NAO_EXECUTADO
+                    self._resultados_motores[identificador] = (
+                        self._CODIGO_NAO_EXECUTADO
+                    )
+                    self._registrar_motor(
+                        identificador,
+                        "NAO INICIADA: a execucao foi interrompida.",
+                    )
+                    continue
+
+                nome = self._nomes_motores.get(
+                    identificador, identificador.replace("_", " ").title()
+                )
+                self._registrar_motor(
+                    identificador,
+                    f"Iniciando etapa {indice}/{len(self._ordem_motores)}: {nome}",
+                )
                 try:
                     resultado = executar_motor(identificador, pasta)
                 except Exception as erro:
@@ -393,23 +427,39 @@ class ExecutorAutomacao:
                     resultados[identificador] = resultado
                     self._resultados_motores[identificador] = resultado
                     self._processos.pop(identificador, None)
+                    self._processo = None
 
-            for identificador, pasta in self.pastas_motores.items():
-                thread = threading.Thread(
-                    target=acompanhar,
-                    args=(identificador, pasta),
-                    daemon=True,
-                )
-                threads.append(thread)
-                thread.start()
-            for thread in threads:
-                thread.join()
+                if resultado != 0:
+                    for proximo in self._ordem_motores[indice:]:
+                        resultados[proximo] = self._CODIGO_NAO_EXECUTADO
+                        self._resultados_motores[proximo] = (
+                            self._CODIGO_NAO_EXECUTADO
+                        )
+                        motivo = (
+                            "a execucao foi interrompida"
+                            if self._interrompida
+                            else f"a etapa {nome} terminou com erro"
+                        )
+                        self._registrar_motor(
+                            proximo, f"NAO INICIADA: {motivo}."
+                        )
+                    break
 
-            codigo = 0 if resultados and all(codigo == 0 for codigo in resultados.values()) else 1
+            codigo = (
+                0
+                if resultados and all(valor == 0 for valor in resultados.values())
+                else 1
+            )
             with self._lock:
                 self._codigo_saida = codigo
-                if codigo != 0 and not self._interrompida:
-                    falhas = [nome for nome, valor in resultados.items() if valor != 0]
+                if self._interrompida:
+                    self._etapa = "Execucao interrompida"
+                elif codigo != 0:
+                    falhas = [
+                        nome
+                        for nome, valor in resultados.items()
+                        if valor not in (0, self._CODIGO_NAO_EXECUTADO)
+                    ]
                     self._erro = "Falha em: " + ", ".join(falhas)
                     self._etapa = "Execucao encerrada com erro"
                 else:
@@ -444,6 +494,8 @@ class ExecutorAutomacao:
                     estado = "executando"
                 elif codigo == 0:
                     estado = "concluida"
+                elif codigo == self._CODIGO_NAO_EXECUTADO:
+                    estado = "interrompida"
                 elif codigo is not None:
                     estado = "interrompida" if self._interrompida else "falhou"
                 else:
@@ -486,4 +538,5 @@ executor_sieg_automacao = ExecutorAutomacao(
         "certificados_vencidos": "Certificados vencidos (SIEG)",
         "auto_nc": "Empresas sem certificado (Auto_NC)",
     },
+    ordem_motores=("certificados_vencidos", "auto_nc"),
 )

@@ -3,7 +3,7 @@ import io
 import json
 from datetime import datetime
 from googleapiclient.http import MediaIoBaseUpload
-from config import DRIVE_RELATORIOS_FOLDER_ID
+from config import DRIVE_RELATORIOS_FOLDER_ID, validar_pastas_drive
 from config import ARQUIVO_CHECKPOINT, PASTA_REGISTROS
 
 
@@ -77,8 +77,11 @@ def gerar_resumo_execucao(
     service,
     empresas_sucesso=None,
     quantidade_certas=0,
+    empresas_ignoradas=None,
 ):
     """Gera o relatório JSON e envia diretamente para o Google Drive."""
+    limite_historico = 10
+    validar_pastas_drive()
     agora = _agora()
 
     nome_arquivo = (
@@ -96,6 +99,7 @@ def gerar_resumo_execucao(
         },
         "empresas_com_falha": falhas_detalhes,
         "empresas_com_sucesso": empresas_sucesso or [],
+        "empresas_ignoradas": empresas_ignoradas or [],
     }
 
     json_bytes = json.dumps(
@@ -122,7 +126,7 @@ def gerar_resumo_execucao(
         supportsAllDrives=True,
     ).execute()
 
-    # O novo resumo já foi salvo; agora remove somente os resumos anteriores.
+    # O novo resumo já foi salvo; agora mantém somente os dez mais recentes.
     query = (
         f"'{DRIVE_RELATORIOS_FOLDER_ID}' in parents "
         "and trashed=false "
@@ -133,7 +137,7 @@ def gerar_resumo_execucao(
     while True:
         resultado = service.files().list(
             q=query,
-            fields="nextPageToken, files(id, name)",
+            fields="nextPageToken, files(id, name, createdTime)",
             pageSize=1000,
             pageToken=page_token,
             supportsAllDrives=True,
@@ -142,8 +146,7 @@ def gerar_resumo_execucao(
         for arquivo in resultado.get("files", []):
             nome = arquivo.get("name", "")
             if (
-                arquivo.get("id") != arquivo_drive["id"]
-                and nome.startswith("resumo_")
+                nome.startswith("resumo_")
                 and nome.endswith(".json")
             ):
                 resumos_anteriores.append(arquivo)
@@ -152,7 +155,15 @@ def gerar_resumo_execucao(
         if not page_token:
             break
 
-    for arquivo in resumos_anteriores:
+    resumos_anteriores.sort(
+        key=lambda arquivo: (
+            arquivo.get("createdTime", ""),
+            arquivo.get("name", ""),
+        ),
+        reverse=True,
+    )
+
+    for arquivo in resumos_anteriores[limite_historico:]:
         service.files().delete(
             fileId=arquivo["id"],
             supportsAllDrives=True,

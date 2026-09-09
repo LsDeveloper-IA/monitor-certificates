@@ -3,7 +3,7 @@ node_modules/
 .pnpm-store/
 .env
 credentials.json
-token.pickle
+token.json
 registros/
 __pycache__/
 *.pyc

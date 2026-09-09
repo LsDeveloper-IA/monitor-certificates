@@ -11,12 +11,16 @@ interface EmpresaResultado { cnpj: string; nome: string; motivo?: string }
 interface Relatorio {
   titulo?: string;
   executado_em?: string;
-  resumo: { certas?: number; sucessos?: number; ignorados?: number; falhas?: number; sem_certificado?: number };
+  resumo: { certas?: number; sucessos?: number; ignorados?: number; falhas?: number; sem_certificado?: number; total_processado?: number };
+  fonte_total?: 'sieg_cnpj_ativos' | 'relatorios';
+  base_atualizada_em?: string;
   empresas_com_falha: EmpresaResultado[];
   empresas_com_sucesso?: EmpresaResultado[];
   empresas_certas?: EmpresaResultado[];
   empresas_corretas?: EmpresaResultado[];
   empresas_sem_certificado?: EmpresaResultado[];
+  empresas_sem_resultado?: EmpresaResultado[];
+  empresas_ignoradas?: EmpresaResultado[];
   arquivo_drive?: { nome?: string; modificado_em?: string };
   historico?: { acumulado?: boolean; arquivos_processados?: number; empresas_acompanhadas?: number };
 }
@@ -47,7 +51,7 @@ export default function CertificadosVencidos() {
   const [carregando, setCarregando] = useState(true);
   const [busca, setBusca] = useState('');
   const [modoEscuro, setModoEscuro] = useState(false);
-  const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos' | 'sem_certificado'>('sem_certificado');
+  const [resultadoAtivo, setResultadoAtivo] = useState<'falhas' | 'sucessos' | 'sem_certificado' | 'sem_resultado'>('sem_certificado');
   const [executandoAutomacao, setExecutandoAutomacao] = useState(false);
   const [mensagemAutomacao, setMensagemAutomacao] = useState<{ tipo: 'success' | 'error'; texto: string } | null>(null);
   const [statusAutomacao, setStatusAutomacao] = useState<StatusAutomacao>({ executando: false, estado: 'aguardando', logs: [] });
@@ -176,25 +180,34 @@ export default function CertificadosVencidos() {
   const resumo = relatorio?.resumo || {};
   const listaSucessos = useMemo(() => relatorio?.empresas_com_sucesso ||
     relatorio?.empresas_certas || relatorio?.empresas_corretas || [], [relatorio]);
-  const sucessos = Number(resumo.sucessos ?? listaSucessos.length);
-  const ignorados = Number(resumo.ignorados || 0);
-  const falhas = Number(resumo.falhas ?? relatorio?.empresas_com_falha.length ?? 0);
+  const sucessos = listaSucessos.length;
+  const ignorados = relatorio?.empresas_ignoradas?.length || 0;
+  const falhas = relatorio?.empresas_com_falha?.length || 0;
   const listaSemCertificado = useMemo(
     () => relatorio?.empresas_sem_certificado || [],
     [relatorio],
   );
-  const semCertificado = Number(resumo.sem_certificado ?? listaSemCertificado.length);
-  const total = sucessos + ignorados + falhas + semCertificado;
+  const semCertificado = listaSemCertificado.length;
+  const listaSemResultado = useMemo(() => relatorio?.empresas_sem_resultado || [], [relatorio]);
+  const semResultado = listaSemResultado.length;
+  const totalComResultado = sucessos + ignorados + falhas + semCertificado;
+  const total = Number(resumo.total_processado ?? (totalComResultado + semResultado));
+  const baseSieg = relatorio?.fonte_total === 'sieg_cnpj_ativos';
   const percentualFalhas = total ? Math.round((falhas / total) * 100) : 0;
   const percentualSucessos = total ? Math.round((sucessos / total) * 100) : 0;
   const percentualIgnorados = total ? Math.round((ignorados / total) * 100) : 0;
   const percentualSemCertificado = total ? Math.round((semCertificado / total) * 100) : 0;
+  const percentualSemResultado = total ? Math.round((semResultado / total) * 100) : 0;
+  const limitesGrafico = [sucessos, sucessos + ignorados, sucessos + ignorados + falhas,
+    totalComResultado].map((numero) => total ? numero / total * 100 : 0);
   const empresas = useMemo(() => {
-    const listaAtiva = resultadoAtivo === 'falhas'
-      ? (relatorio?.empresas_com_falha || [])
-      : resultadoAtivo === 'sem_certificado'
-        ? listaSemCertificado
-        : listaSucessos;
+    const listas = {
+      falhas: relatorio?.empresas_com_falha || [],
+      sucessos: listaSucessos,
+      sem_certificado: listaSemCertificado,
+      sem_resultado: listaSemResultado,
+    };
+    const listaAtiva = listas[resultadoAtivo];
     const termo = busca.trim().toLocaleLowerCase('pt-BR');
     const numeros = busca.replace(/\D/g, '');
     if (!termo) return listaAtiva;
@@ -202,12 +215,12 @@ export default function CertificadosVencidos() {
       item.nome?.toLocaleLowerCase('pt-BR').includes(termo) ||
       Boolean(numeros && item.cnpj?.replace(/\D/g, '').includes(numeros)) ||
       item.motivo?.toLocaleLowerCase('pt-BR').includes(termo));
-  }, [busca, listaSemCertificado, listaSucessos, relatorio, resultadoAtivo]);
+  }, [busca, listaSemCertificado, listaSemResultado, listaSucessos, relatorio, resultadoAtivo]);
 
   const cards = [
     { label: 'Total processado', valor: total, Icone: Building2, fundo: 'bg-blue-100', texto: 'text-blue-600' },
     { label: 'Sucessos', valor: sucessos, Icone: CheckCircle2, fundo: 'bg-green-100', texto: 'text-green-600' },
-    { label: 'Ignorados', valor: ignorados, Icone: Clock3, fundo: 'bg-yellow-100', texto: 'text-yellow-600' },
+    { label: 'Sem resultado', valor: semResultado, Icone: Clock3, fundo: 'bg-gray-100', texto: 'text-gray-600' },
     { label: 'Falhas', valor: falhas, Icone: XCircle, fundo: 'bg-red-100', texto: 'text-red-600' },
     { label: 'Sem certificado', valor: semCertificado, Icone: AlertTriangle, fundo: 'bg-orange-100', texto: 'text-orange-600' },
   ];
@@ -305,24 +318,32 @@ export default function CertificadosVencidos() {
         </div>)}
       </section>
 
+      {relatorio && <p className="mb-6 text-sm text-gray-600">
+        {baseSieg
+          ? 'Total de CNPJs únicos com “Ativo na Sieg” marcado. CPFs e documentos incompletos ficam fora da contagem.'
+          : 'Total de CNPJs únicos identificados nos relatórios. A lista completa do SIEG estará disponível após uma execução completa da Auto_NC.'}
+        {baseSieg && relatorio.base_atualizada_em && ` Base consultada em ${new Date(relatorio.base_atualizada_em).toLocaleString('pt-BR')}.`}
+      </p>}
+
       <section className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
         <div className="bg-white rounded-lg shadow p-6">
-          <h3 className="font-medium text-gray-900 mb-5">Distribuição geral</h3>
+          <h3 className="font-medium text-gray-900 mb-5">Distribuição de todos os CNPJs ativos</h3>
           <div className="flex items-center justify-center">
             <div
               className="relative w-40 h-40 rounded-full"
               style={{
-                background: `conic-gradient(
-                  #16a34a 0 ${percentualSucessos}%,
-                  #eab308 ${percentualSucessos}% ${percentualSucessos + percentualIgnorados}%,
-                  #dc2626 ${percentualSucessos + percentualIgnorados}% ${percentualSucessos + percentualIgnorados + percentualFalhas}%,
-                  #f97316 ${percentualSucessos + percentualIgnorados + percentualFalhas}% 100%
-                )`,
+                background: total ? `conic-gradient(
+                  #16a34a 0 ${limitesGrafico[0]}%,
+                  #eab308 ${limitesGrafico[0]}% ${limitesGrafico[1]}%,
+                  #dc2626 ${limitesGrafico[1]}% ${limitesGrafico[2]}%,
+                  #f97316 ${limitesGrafico[2]}% ${limitesGrafico[3]}%,
+                  #9ca3af ${limitesGrafico[3]}% 100%
+                )` : '#e5e7eb',
               }}
             >
               <div className="absolute inset-4 bg-white rounded-full flex flex-col items-center justify-center">
                 <span className="text-3xl font-bold text-gray-900">{total}</span>
-                <span className="text-xs text-gray-500">processadas</span>
+                <span className="text-xs text-gray-500">{baseSieg ? 'CNPJs ativos únicos' : 'CNPJs únicos'}</span>
               </div>
             </div>
           </div>
@@ -331,11 +352,12 @@ export default function CertificadosVencidos() {
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-yellow-500" /><span className="text-gray-600">{percentualIgnorados}% ignorado</span></div>
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-red-600" /><span className="text-gray-600">{percentualFalhas}% falha</span></div>
             <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-orange-500" /><span className="text-gray-600">{percentualSemCertificado}% sem certificado</span></div>
+            <div><span className="mx-auto mb-1 block h-2.5 w-2.5 rounded-full bg-gray-400" /><span className="text-gray-600">{percentualSemResultado}% sem resultado</span></div>
           </div>
         </div>
         <div className="lg:col-span-2 bg-white rounded-lg shadow p-6">
           <h3 className="font-medium text-gray-900 mb-5">Resultado da execução</h3>
-          {[['Sucessos', sucessos, 'bg-green-500'], ['Ignorados', ignorados, 'bg-yellow-500'], ['Falhas', falhas, 'bg-red-500'], ['Sem certificado', semCertificado, 'bg-orange-500']].map(([nome, valor, cor]) => {
+          {[['Sucessos', sucessos, 'bg-green-500'], ['Falhas', falhas, 'bg-red-500'], ['Sem certificado', semCertificado, 'bg-orange-500'], ['Sem resultado', semResultado, 'bg-gray-400'], ...(ignorados > 0 ? [['Ignorados', ignorados, 'bg-yellow-500']] : [])].map(([nome, valor, cor]) => {
             const numero = Number(valor); const largura = total ? (numero / total) * 100 : 0;
             return <div key={String(nome)} className="mb-5 last:mb-0"><div className="flex justify-between text-sm mb-2"><span className="text-gray-600">{nome}</span><b className="text-gray-900">{numero}</b></div><div className="h-3 bg-gray-100 rounded-full overflow-hidden"><div className={`h-full ${cor} rounded-full`} style={{ width: `${largura}%` }} /></div></div>;
           })}
@@ -347,7 +369,9 @@ export default function CertificadosVencidos() {
           <div className="flex flex-col sm:flex-row gap-4 sm:items-center sm:justify-between">
             <div>
               <h3 className="text-lg font-medium text-gray-900">Empresas por resultado</h3>
-              <p className="text-sm text-gray-500">Dados nominais disponíveis no último relatório</p>
+              <p className="text-sm text-gray-500">{resultadoAtivo === 'sem_resultado'
+                ? 'Empresas ativas no SIEG ainda sem correspondência nas demais categorias, após comparar CNPJ e nome.'
+                : 'Dados nominais disponíveis nos relatórios das automações.'}</p>
             </div>
             <div className="relative"><Search className="w-5 h-5 absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" /><input value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar empresa, CNPJ ou resultado" className="w-full sm:w-72 pl-10 pr-4 py-2 border border-gray-300 rounded-lg" /></div>
           </div>
@@ -376,6 +400,14 @@ export default function CertificadosVencidos() {
             >
               Sem certificado ({semCertificado})
             </button>
+            <button
+              onClick={() => { setResultadoAtivo('sem_resultado'); setBusca(''); }}
+              className={`rounded-lg px-4 py-2 text-sm font-medium ${resultadoAtivo === 'sem_resultado' ? 'bg-gray-600 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+              role="tab"
+              aria-selected={resultadoAtivo === 'sem_resultado'}
+            >
+              Sem resultado ({semResultado})
+            </button>
           </div>
         </div>
         <div className="overflow-x-auto"><table className="w-full divide-y divide-gray-200"><thead className="bg-gray-50"><tr><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Empresa</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">CNPJ</th><th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Resultado</th></tr></thead>
@@ -384,6 +416,8 @@ export default function CertificadosVencidos() {
               ? <span className="inline-flex gap-2"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />{item.motivo || 'Motivo não informado'}</span>
               : resultadoAtivo === 'sem_certificado'
                 ? <span className="inline-flex gap-2 font-medium"><AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />Sem certificado cadastrado</span>
+              : resultadoAtivo === 'sem_resultado'
+                ? <span className="inline-flex gap-2 font-medium text-gray-600"><Clock3 className="w-4 h-4 shrink-0 mt-0.5" />Sem resultado nos relatórios</span>
               : <span className="inline-flex gap-2 font-medium"><CheckCircle2 className="w-4 h-4 shrink-0 mt-0.5" />Processada com sucesso</span>}
           </td></tr>)}</tbody>
         </table></div>
@@ -394,6 +428,7 @@ export default function CertificadosVencidos() {
           <p className="mx-auto mt-2 max-w-xl text-sm text-gray-500">As empresas só aparecem aqui quando a automação SIEG conclui o processamento e grava a lista nominal.</p>
         </div>}
         {!carregando && !empresas.length && !erro && resultadoAtivo === 'sem_certificado' && <p className="p-8 text-center text-gray-500">Nenhuma empresa sem certificado foi identificada pela Auto_NC.</p>}
+        {!carregando && !empresas.length && !erro && resultadoAtivo === 'sem_resultado' && <p className="p-8 text-center text-gray-500">Nenhuma empresa sem resultado encontrada.</p>}
       </section>
     </main>
   </div>;

@@ -1,48 +1,86 @@
-# Projeto Monitoramento Certificados Digitais
+# Monitor de Certificados
 
-## Integração com a automação
+Aplicação para acompanhar certificados digitais, executar rotinas no SIEG e
+consolidar os resultados em um painel web. O repositório reúne o frontend, a
+API, duas automações Playwright e o código compartilhado entre elas.
 
-O backend recebe os certificados processados pelo endpoint autenticado:
+## Componentes
 
-```http
-POST /api/certificados/sincronizar
-X-API-Key: valor-de-INTEGRACAO_API_KEY
-Content-Type: application/json
+| Pasta | Responsabilidade |
+| --- | --- |
+| `certificados-frontend/` | Painel Next.js para certificados, pendências, relatórios e automações. |
+| `certificados-monitor/` | API Flask, banco local, agendamentos, integrações e executor dos motores. |
+| `automacao-sieg/` | Atualiza no SIEG os certificados vencidos encontrados no Google Drive. |
+| `Auto_NC/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
+| `sieg_comum/` | Login, navegação e cliente do Drive usados pelas duas automações. |
+| `scripts/` | Inicialização do ambiente local. |
+
+## Fluxo das automações SIEG
+
+Ao iniciar a automação SIEG pelo painel, o backend executa os motores em uma
+única fila:
+
+1. `automacao-sieg`: procura e atualiza certificados vencidos.
+2. `Auto_NC`: lê a lista após as atualizações e identifica quem continua sem
+   certificado.
+
+A segunda etapa só começa quando a primeira termina com sucesso. Se houver
+falha ou interrupção, ela não é iniciada. Isso impede duas sessões simultâneas
+na mesma conta do SIEG.
+
+## Preparação local no Windows
+
+Requisitos: Python, Node.js, npm e Chromium do Playwright.
+
+```powershell
+cd certificados-monitor
+python -m pip install -r requirements.txt
+
+cd ..\automacao-sieg
+python -m pip install -r requirements.txt
+python -m playwright install chromium
+
+cd ..\certificados-frontend
+npm install
 ```
 
-Exemplo de corpo:
+Copie e preencha os exemplos de configuração de cada componente:
 
-```json
-{
-  "certificados": [
-    {
-      "empresa": "Empresa Exemplo",
-      "cnpj": "12345678000190",
-      "vencimento": "2027-05-05",
-      "email": "contato@example.com",
-      "telefone": "5585000000000",
-      "responsavel": "Responsável",
-      "arquivo": "certificado.pfx",
-      "observacao": "Processado pela automação"
-    }
-  ]
-}
-```
+- `certificados-monitor/.env.example` → `certificados-monitor/.env`
+- `certificados-frontend/.env.example` → `certificados-frontend/.env.local`
+- `automacao-sieg/.env.example` → `automacao-sieg/.env`
+- `Auto_NC/.env.example` → `Auto_NC/.env`
 
-O CPF/CNPJ é normalizado e usado como identificador. Uma nova execução
-atualiza o cadastro existente em vez de criar duplicatas. Esse endpoint não
-envia e-mails ou mensagens.
+Mantenha `.env`, `credentials.json`, `token.json`, bancos locais e relatórios
+fora do Git.
 
-Copie `certificados-monitor/.env.example` para `.env` e defina chaves fortes
-antes de iniciar o backend.
+## Execução integrada
 
-## Executar a aplicação no Windows
-
-Na pasta `certificados-frontend`, execute:
+Na pasta do frontend:
 
 ```powershell
 npm run dev
 ```
 
-Esse comando inicia o backend Flask na porta 5000 e o frontend Next.js na
-porta 3000. Os logs do backend ficam em `certificados-monitor/runtime/`.
+O script inicia o backend em `http://127.0.0.1:5000`, aguarda a API responder e
+abre o frontend em `http://localhost:3000`. Os logs do backend ficam em
+`certificados-monitor/runtime/`. Ao encerrar o Next.js, o processo Flask aberto
+pelo script também é encerrado.
+
+## Testes
+
+```powershell
+cd certificados-monitor
+python -X utf8 -m unittest discover -s tests
+
+cd ..\automacao-sieg
+python -X utf8 -m unittest discover -s tests
+
+cd ..\Auto_NC
+python -X utf8 -m unittest discover -s tests
+
+cd ..
+python -X utf8 -m unittest discover -s sieg_comum/tests
+```
+
+Consulte o README de cada pasta para configuração e execução isolada.
