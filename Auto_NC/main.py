@@ -448,7 +448,7 @@ def executar_automacao_sieg_cadastro_a1():
                     time.sleep(TIME_CURTO)
 
                     # PASSO 8 e 9: Preencher UF 'CE' se estiver vazia
-                    preencher_uf_se_necessario(page)
+                    preencher_uf_se_necessario(page, "CE")
                     time.sleep(TIME_CURTO)
 
                     # PASSO 10: Salvar e continuar
