@@ -343,87 +343,6 @@ def imprimir_relatorio_final(
     if not consulta_banco_realizada:
         escrever("ATENÇÃO: a consulta ao banco não foi concluída.")
     escrever(f"Planilha gerada: {caminho_planilha or 'não gerada'}")
-    return
-
-    print("\n============================================================")
-    print("RELATÓRIO FINAL DA AUTOMAÇÃO")
-    print("============================================================")
-    print(f"Certificados processados: {len(resultados)}")
-    print(
-        "Certificados com CNPJ: "
-        f"{sum(1 for item in resultados if item.get('cnpj'))}"
-    )
-    print(
-        "Certificados com e-mail: "
-        f"{sum(1 for item in resultados if item.get('email'))}"
-    )
-    print(f"E-mails não localizados: {len(pendencias)}")
-    print(f"Alertas de 30 ou 15 dias preparados: {len(alertas)}")
-    print(f"Alertas enviados: {resumo_envios['enviados']}")
-    print(f"Alertas duplicados ignorados: {resumo_envios['duplicados']}")
-    print(f"Falhas de envio: {resumo_envios['falhas']}")
-    print(
-        "Alertas internos enviados pela WhatsContábil: "
-        f"{resumo_whatscontabil['enviados']}"
-    )
-    print(
-        "Alertas internos duplicados ignorados: "
-        f"{resumo_whatscontabil['duplicados']}"
-    )
-    print(
-        "Falhas de envio pela WhatsContábil: "
-        f"{resumo_whatscontabil['falhas']}"
-    )
-    print(
-        "Mensagens da WhatsContábil não tentadas por segurança: "
-        f"{resumo_whatscontabil.get('interrompidos', 0)}"
-    )
-    print("---------------------------")
-    print("Quantidade por status:")
-    for nome_status, quantidade in sorted(status.items()):
-        print(f"{nome_status}: {quantidade}")
-
-    if origens_email:
-        print("---------------------------")
-        print("E-mails encontrados por fonte:")
-        for origem, quantidade in sorted(origens_email.items()):
-            print(f"{origem}: {quantidade}")
-
-    if not consulta_banco_realizada:
-        print("---------------------------")
-        print("A consulta de e-mails no banco não foi concluída.")
-    elif pendencias:
-        print("---------------------------")
-        print("DETALHAMENTO DOS E-MAILS NÃO LOCALIZADOS")
-        for numero, pendencia in enumerate(pendencias, start=1):
-            print("---------------------------")
-            print(f"Pendência {numero} de {len(pendencias)}")
-            print(f"Empresa: {pendencia['empresa']}")
-            print(f"CNPJ: {pendencia['cnpj']}")
-            print(f"Arquivo: {pendencia['arquivo']}")
-            print(f"Status: {pendencia['status']}")
-            print(f"Critério: {pendencia['criterio_busca']}")
-            print(f"Motivo: {pendencia['motivo']}")
-
-    if resumo_envios["detalhes_falhas"]:
-        print("---------------------------")
-        print("DETALHAMENTO DAS FALHAS DE ENVIO")
-        for falha in resumo_envios["detalhes_falhas"]:
-            print(
-                f"{falha['empresa']} | {falha['email']} | "
-                f"{falha['erro']}"
-            )
-
-    print("---------------------------")
-    print(f"Planilha gerada: {caminho_planilha or 'não gerada'}")
-    if resumo_envios["enviados"]:
-        print(
-            "Mensagens aceitas pelo Gmail nesta execução: "
-            f"{resumo_envios['enviados']}"
-        )
-    else:
-        print("Nenhum e-mail de cliente foi enviado nesta execução.")
-    print("============================================================")
 
 
 def criar_copia_teste(arquivo_original, pasta_destino):
@@ -1375,15 +1294,15 @@ if not pasta_e_cnpj.exists() and drive is not None:
                 pasta_e_cnpj,
             )
             print(
-                "Pasta local indisponÃ­vel; certificados baixados "
+                "Pasta local indisponível; certificados baixados "
                 f"temporariamente do Drive: {quantidade_baixada}"
             )
         except Exception as erro:
             if pasta_drive_temporaria is not None:
                 pasta_drive_temporaria.cleanup()
                 pasta_drive_temporaria = None
-            print("NÃ£o foi possÃ­vel baixar os certificados pelo Google Drive.")
-            print(f"Detalhe tÃ©cnico: {erro}")
+            print("Não foi possível baixar os certificados pelo Google Drive.")
+            print(f"Detalhe técnico: {erro}")
 
 
 inicio_certificados = perf_counter()

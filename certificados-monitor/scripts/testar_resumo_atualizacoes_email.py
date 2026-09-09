@@ -5,7 +5,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 
 
-PASTA_PROJETO = Path(__file__).resolve().parent
+PASTA_PROJETO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PASTA_PROJETO / "automation_engine"))
 load_dotenv(PASTA_PROJETO / ".env", override=True)
 

@@ -22,7 +22,7 @@ from src.services.agendador_automacao import agendador_automacao
 load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 load_dotenv()
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
-modo_debug = os.getenv('FLASK_DEBUG', 'true').strip().lower() in {'1', 'true', 'sim', 'yes'}
+modo_debug = os.getenv('FLASK_DEBUG', 'false').strip().lower() in {'1', 'true', 'sim', 'yes'}
 app.config['DEBUG'] = modo_debug
 app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'altere-esta-chave-no-env')
 CORS(
@@ -75,4 +75,6 @@ def serve(path):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=modo_debug)
+    host = os.getenv('FLASK_HOST', '127.0.0.1').strip() or '127.0.0.1'
+    porta = int(os.getenv('FLASK_PORT', '5000'))
+    app.run(host=host, port=porta, debug=modo_debug)

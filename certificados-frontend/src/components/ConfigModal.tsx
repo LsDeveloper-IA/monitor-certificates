@@ -349,7 +349,10 @@ export default function ConfigModal({
     try {
       const response = await fetch('/api/notificacao/configurar-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
         body: JSON.stringify(emailConfig)
       });
 
@@ -373,7 +376,10 @@ export default function ConfigModal({
     try {
       const response = await fetch('/api/notificacao/configurar-whatsapp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
         body: JSON.stringify(whatsappConfig)
       });
 
@@ -400,7 +406,10 @@ export default function ConfigModal({
       
       const response = await fetch('/api/notificacao/configurar-destinatarios', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
         body: JSON.stringify({ emails, telefones })
       });
 
@@ -427,7 +436,10 @@ export default function ConfigModal({
     try {
       const response = await fetch('/api/notificacao/teste-email', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
         body: JSON.stringify({ 
           destinatario: emailConfig.usuario,
           timestamp: new Date().toLocaleString('pt-BR')
@@ -458,7 +470,10 @@ export default function ConfigModal({
     try {
       const response = await fetch('/api/notificacao/teste-whatsapp', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Admin-Key': chaveAdmin,
+        },
         body: JSON.stringify({ numero: telefone })
       });
 

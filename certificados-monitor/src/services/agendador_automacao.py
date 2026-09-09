@@ -127,9 +127,26 @@ class AgendadorAutomacao:
 
     def _monitorar(self):
         while True:
-            self._verificar_agendamento()
+            self._executar_ciclo_monitor()
             self._parar.wait(15)
             self._parar.clear()
+
+    def _executar_ciclo_monitor(self):
+        try:
+            self._verificar_agendamento()
+            return True
+        except Exception as erro:
+            with self._lock:
+                self._configuracao["ultimo_erro"] = (
+                    f"Falha no monitor do agendador: {erro}"
+                )
+                configuracao = dict(self._configuracao)
+            try:
+                self._salvar(configuracao)
+            except OSError:
+                # O erro continua disponivel em memoria mesmo se o disco falhar.
+                pass
+            return False
 
     def _verificar_agendamento(self, agora=None):
         agora = agora or datetime.now()

@@ -1,6 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.models.user import db
+
+
+def agora_utc():
+    return datetime.now(timezone.utc)
 
 
 class EmpresaRelatorio(db.Model):
@@ -17,12 +21,14 @@ class EmpresaRelatorio(db.Model):
     primeiro_arquivo = db.Column(db.String(250), nullable=True)
     ultimo_arquivo = db.Column(db.String(250), nullable=True)
     ocorrencias = db.Column(db.Integer, nullable=False, default=1)
-    criado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    criado_em = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=agora_utc
+    )
     atualizado_em = db.Column(
-        db.DateTime,
+        db.DateTime(timezone=True),
         nullable=False,
-        default=datetime.utcnow,
-        onupdate=datetime.utcnow,
+        default=agora_utc,
+        onupdate=agora_utc,
     )
 
     def to_dict(self):
@@ -50,4 +56,6 @@ class RelatorioDriveProcessado(db.Model):
     total_sucessos = db.Column(db.Integer, nullable=False, default=0)
     total_ignorados = db.Column(db.Integer, nullable=False, default=0)
     total_falhas = db.Column(db.Integer, nullable=False, default=0)
-    processado_em = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    processado_em = db.Column(
+        db.DateTime(timezone=True), nullable=False, default=agora_utc
+    )

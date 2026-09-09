@@ -1,5 +1,5 @@
 import re
-from datetime import datetime
+from datetime import datetime, timezone
 
 from src.models.certificado import Certificado, db
 
@@ -38,7 +38,11 @@ def sincronizar_certificados(itens, substituir_lista=False):
     certificados_anteriores = Certificado.query.filter_by(ativo=True).all()
     primeira_carga = not certificados_anteriores
     resumo["primeira_carga"] = primeira_carga
-    documentos_anteriores = {item.cpf_cnpj for item in certificados_anteriores}
+    ativos_por_documento = {}
+    for item_anterior in certificados_anteriores:
+        ativos_por_documento.setdefault(item_anterior.cpf_cnpj, []).append(
+            item_anterior
+        )
 
     try:
         for indice, item in enumerate(itens):
@@ -70,14 +74,66 @@ def sincronizar_certificados(itens, substituir_lista=False):
                     certificado = Certificado(cpf_cnpj=documento)
                     db.session.add(certificado)
 
+                estado_anterior = {
+                    "nome_empresa": certificado.nome_empresa,
+                    "tipo": certificado.tipo,
+                    "data_vencimento": certificado.data_vencimento,
+                    "responsavel": certificado.responsavel,
+                    "email_contato": certificado.email_contato,
+                    "telefone_contato": certificado.telefone_contato,
+                    "observacoes": certificado.observacoes,
+                    "arquivo_drive_id": certificado.arquivo_drive_id,
+                    "ativo": certificado.ativo,
+                }
                 vencimento_anterior = (
                     certificado.data_vencimento.isoformat()
                     if certificado.data_vencimento
                     else None
                 )
-                arquivo_anterior = certificado.arquivo_drive_id
                 novo_vencimento = converter_data(
                     item.get("vencimento") or item.get("data_vencimento")
+                )
+
+                anteriores_mesmo_documento = [
+                    anterior
+                    for anterior in ativos_por_documento.get(documento, [])
+                    if anterior is not certificado
+                    and anterior.ativo
+                ]
+                candidatos_renovados = [
+                    anterior
+                    for anterior in anteriores_mesmo_documento
+                    if anterior.data_vencimento
+                    and anterior.data_vencimento < novo_vencimento
+                ]
+                renovado = bool(
+                    novo
+                    and not primeira_carga
+                    and (
+                        candidatos_renovados
+                        or (substituir_lista and anteriores_mesmo_documento)
+                    )
+                )
+                if renovado and not candidatos_renovados:
+                    candidatos_renovados = anteriores_mesmo_documento
+                certificado_anterior = (
+                    max(
+                        candidatos_renovados,
+                        key=lambda anterior: anterior.data_vencimento,
+                    )
+                    if renovado
+                    else None
+                )
+                arquivo_anterior = (
+                    certificado_anterior.arquivo_drive_id
+                    if certificado_anterior
+                    else certificado.arquivo_drive_id
+                )
+                vencimento_anterior = (
+                    certificado_anterior.data_vencimento.isoformat()
+                    if certificado_anterior
+                    and certificado_anterior.data_vencimento
+                    else vencimento_anterior
                 )
 
                 certificado.nome_empresa = nome
@@ -97,9 +153,38 @@ def sincronizar_certificados(itens, substituir_lista=False):
                 )
                 certificado.arquivo_drive_id = arquivo
                 certificado.ativo = True
-                certificado.data_atualizacao = datetime.utcnow()
                 chaves_recebidas.add((documento, arquivo))
-                resumo["criados" if novo else "atualizados"] += 1
+
+                estado_atual = {
+                    "nome_empresa": certificado.nome_empresa,
+                    "tipo": certificado.tipo,
+                    "data_vencimento": certificado.data_vencimento,
+                    "responsavel": certificado.responsavel,
+                    "email_contato": certificado.email_contato,
+                    "telefone_contato": certificado.telefone_contato,
+                    "observacoes": certificado.observacoes,
+                    "arquivo_drive_id": certificado.arquivo_drive_id,
+                    "ativo": certificado.ativo,
+                }
+                if novo:
+                    resumo["criados"] += 1
+                    certificado.data_atualizacao = datetime.now(timezone.utc)
+                elif estado_atual != estado_anterior:
+                    resumo["atualizados"] += 1
+                    certificado.data_atualizacao = datetime.now(timezone.utc)
+                else:
+                    resumo["inalterados"] += 1
+
+                if renovado:
+                    for anterior in candidatos_renovados:
+                        anterior.ativo = False
+                        anterior.data_atualizacao = datetime.now(timezone.utc)
+                        resumo["desativados"] += 1
+                    ativos_por_documento[documento] = [certificado]
+                elif novo:
+                    ativos_por_documento.setdefault(documento, []).append(
+                        certificado
+                    )
 
                 if novo:
                     if primeira_carga:
@@ -107,7 +192,7 @@ def sincronizar_certificados(itens, substituir_lista=False):
                     else:
                         tipo_alteracao = (
                             "renovado"
-                            if documento in documentos_anteriores
+                            if renovado
                             else "novo"
                         )
                 elif vencimento_anterior != novo_vencimento.isoformat():
@@ -127,8 +212,6 @@ def sincronizar_certificados(itens, substituir_lista=False):
                             "vencimento_novo": novo_vencimento.isoformat(),
                         }
                     )
-                else:
-                    resumo["inalterados"] += 1
             except (ValueError, TypeError) as erro:
                 resumo["rejeitados"].append(
                     {"indice": indice, "erro": str(erro)}
@@ -142,7 +225,7 @@ def sincronizar_certificados(itens, substituir_lista=False):
                 )
                 if chave not in chaves_recebidas:
                     certificado.ativo = False
-                    certificado.data_atualizacao = datetime.utcnow()
+                    certificado.data_atualizacao = datetime.now(timezone.utc)
                     resumo["desativados"] += 1
 
         db.session.commit()

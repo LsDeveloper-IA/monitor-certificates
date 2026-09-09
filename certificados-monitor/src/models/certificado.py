@@ -1,10 +1,14 @@
 from src.models.user import db
-from datetime import datetime, date
+from datetime import date, datetime, timezone
+
+
+def agora_utc():
+    return datetime.now(timezone.utc)
 
 class Certificado(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     nome_empresa = db.Column(db.String(200), nullable=False)
-    cpf_cnpj = db.Column(db.String(18), nullable=False)
+    cpf_cnpj = db.Column(db.String(18), nullable=False, index=True)
     tipo = db.Column(db.String(2), nullable=False)  # 'PJ' ou 'PF'
     data_vencimento = db.Column(db.Date, nullable=False)
     responsavel = db.Column(db.String(100), nullable=True)
@@ -12,8 +16,10 @@ class Certificado(db.Model):
     telefone_contato = db.Column(db.String(20), nullable=True)
     observacoes = db.Column(db.Text, nullable=True)
     arquivo_drive_id = db.Column(db.String(100), nullable=True)  # ID do arquivo no Google Drive
-    data_criacao = db.Column(db.DateTime, default=datetime.utcnow)
-    data_atualizacao = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    data_criacao = db.Column(db.DateTime(timezone=True), default=agora_utc)
+    data_atualizacao = db.Column(
+        db.DateTime(timezone=True), default=agora_utc, onupdate=agora_utc
+    )
     ativo = db.Column(db.Boolean, default=True)
 
     def __repr__(self):

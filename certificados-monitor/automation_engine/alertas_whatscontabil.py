@@ -322,9 +322,9 @@ def criar_relatorio_excel(alertas, tipo, pasta_destino):
             if numero_linha % 2 == 0:
                 celula.fill = PatternFill("solid", fgColor="D9EAF7")
 
-        # O openpyxl nǜo calcula automaticamente a altura das linhas. Esta
+        # O openpyxl não calcula automaticamente a altura das linhas. Esta
         # estimativa evita que nomes e e-mails longos fiquem cortados quando
-        # o relat��rio for aberto ou enviado como documento.
+        # o relatório for aberto ou enviado como documento.
         caracteres_por_coluna = [34, 18, 21, 30, 18, 14]
         quantidade_linhas = max(
             1,

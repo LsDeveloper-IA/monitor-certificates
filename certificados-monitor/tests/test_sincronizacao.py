@@ -39,6 +39,22 @@ class SincronizacaoTestCase(unittest.TestCase):
         resposta = self.enviar([], chave="incorreta")
         self.assertEqual(resposta.status_code, 401)
 
+    def test_bloqueia_criacao_sem_chave(self):
+        resposta = self.cliente.post(
+            "/api/certificados",
+            json={
+                "nome_empresa": "Empresa Teste",
+                "cpf_cnpj": "12345678000190",
+                "tipo": "PJ",
+                "data_vencimento": "2027-05-05",
+            },
+        )
+        self.assertEqual(resposta.status_code, 401)
+
+    def test_mantem_consulta_sem_chave(self):
+        resposta = self.cliente.get("/api/certificados")
+        self.assertEqual(resposta.status_code, 200)
+
     def test_cria_e_atualiza_sem_duplicar_cnpj(self):
         certificado = {
             "empresa": "Empresa Teste",
@@ -57,8 +73,20 @@ class SincronizacaoTestCase(unittest.TestCase):
         atualizada = self.enviar([certificado])
         self.assertEqual(atualizada.status_code, 200)
         self.assertEqual(atualizada.json["atualizados"], 1)
-        self.assertEqual(atualizada.json["inalterados"], 1)
+        self.assertEqual(atualizada.json["inalterados"], 0)
         self.assertEqual(atualizada.json["alteracoes_certificados"], [])
+
+        inalterada = self.enviar([certificado])
+        self.assertEqual(inalterada.status_code, 200)
+        self.assertEqual(inalterada.json["atualizados"], 0)
+        self.assertEqual(inalterada.json["inalterados"], 1)
+        self.assertEqual(
+            inalterada.json["criados"]
+            + inalterada.json["atualizados"]
+            + inalterada.json["inalterados"]
+            + len(inalterada.json["rejeitados"]),
+            inalterada.json["recebidos"],
+        )
 
         listagem = self.cliente.get("/api/certificados")
         self.assertEqual(len(listagem.json), 1)
@@ -122,6 +150,36 @@ class SincronizacaoTestCase(unittest.TestCase):
         self.assertEqual(
             resposta.json["alteracoes_certificados"][0]["tipo"], "renovado"
         )
+
+    def test_renovacao_desativa_certificado_antigo_sem_substituir_lista(self):
+        antigo = {
+            "empresa": "Empresa renovada",
+            "cnpj": "12.345.678/0001-90",
+            "vencimento": "2026-05-05",
+            "arquivo": "antigo.pfx",
+        }
+        novo = {
+            **antigo,
+            "vencimento": "2027-05-05",
+            "arquivo": "renovado.pfx",
+        }
+        self.enviar([antigo])
+
+        resposta = self.enviar([novo])
+
+        self.assertEqual(resposta.status_code, 200)
+        self.assertEqual(resposta.json["desativados"], 1)
+        self.assertEqual(
+            resposta.json["alteracoes_certificados"][0]["tipo"],
+            "renovado",
+        )
+        self.assertEqual(
+            resposta.json["alteracoes_certificados"][0]["arquivo_anterior"],
+            "antigo.pfx",
+        )
+        listagem = self.cliente.get("/api/certificados")
+        self.assertEqual(len(listagem.json), 1)
+        self.assertEqual(listagem.json[0]["arquivo_drive_id"], "renovado.pfx")
 
     def test_informa_quando_o_vencimento_muda(self):
         certificado = {

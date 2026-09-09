@@ -288,7 +288,7 @@ def enviar_template(
                 timeout=timeout,
             )
         else:
-            # MantǸm o fluxo jǭ validado dos templates sem anexo.
+            # Mantém o fluxo já validado dos templates sem anexo.
             campos_multipart = {
                 chave: (None, valor) for chave, valor in dados.items()
             }

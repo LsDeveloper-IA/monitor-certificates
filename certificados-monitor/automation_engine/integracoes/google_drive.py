@@ -40,7 +40,7 @@ def conectar_google_drive(pasta_projeto):
 
     if not arquivo_credentials.exists() and not arquivo_token.exists():
         raise FileNotFoundError(
-            "credentials.json e token.json nÃ£o foram encontrados no projeto."
+            "credentials.json e token.json não foram encontrados no projeto."
         )
 
     if arquivo_token.exists():
@@ -203,7 +203,7 @@ def enviar_relatorio_drive(caminho_pdf, pasta_projeto):
     configurar_permissao_relatorio(drive, arquivo["id"], modo, leitor)
     return arquivo
 def baixar_certificados_drive(drive, pasta_id, destino):
-    """Baixa PFX/P12 da Ã¡rvore do Drive preservando as pastas das empresas."""
+    """Baixa PFX/P12 da árvore do Drive preservando as pastas das empresas."""
     destino = Path(destino)
     quantidade = 0
 
@@ -320,7 +320,7 @@ def listar_empresas_drive(drive):
     pasta_e_cnpj_id = os.getenv("GOOGLE_DRIVE_PASTA_E_CNPJ_ID", "").strip()
     if not pasta_e_cnpj_id:
         raise ValueError(
-            "GOOGLE_DRIVE_PASTA_E_CNPJ_ID nÃ£o foi configurado no arquivo .env."
+            "GOOGLE_DRIVE_PASTA_E_CNPJ_ID não foi configurado no arquivo .env."
         )
 
     def extrair_cnpj_e_nome(nome):

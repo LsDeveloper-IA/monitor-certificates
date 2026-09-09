@@ -16,6 +16,24 @@ class ExecutorFalso:
 
 
 class AgendadorAutomacaoTestCase(unittest.TestCase):
+    def test_monitor_registra_erro_inesperado_sem_encerrar_ciclo(self):
+        with tempfile.TemporaryDirectory() as pasta:
+            agendador = AgendadorAutomacao(
+                ExecutorFalso(),
+                Path(pasta) / "agendador.json",
+            )
+            with patch.object(
+                agendador,
+                "_verificar_agendamento",
+                side_effect=OSError("disco indisponivel"),
+            ):
+                resultado = agendador._executar_ciclo_monitor()
+
+            status = agendador.status()
+
+        self.assertFalse(resultado)
+        self.assertIn("disco indisponivel", status["ultimo_erro"])
+
     def test_rejeita_horario_invalido(self):
         with tempfile.TemporaryDirectory() as pasta:
             agendador = AgendadorAutomacao(

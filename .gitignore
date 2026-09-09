@@ -19,6 +19,8 @@ certificados-frontend/.env.local
 certificados-monitor/*.pyc
 **/__pycache__/
 *.py[cod]
+*.db
+.pytest_cache/
 
 # Geral
 .DS_Store

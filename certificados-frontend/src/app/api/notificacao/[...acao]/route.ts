@@ -3,6 +3,19 @@ import { NextRequest, NextResponse } from 'next/server';
 
 const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
 
+const acoesPermitidas = new Set([
+  'configurar-email',
+  'configurar-whatsapp',
+  'configurar-destinatarios',
+  'teste-email',
+  'teste-whatsapp',
+  'verificar-agora',
+  'agendador/status',
+  'agendador/iniciar',
+  'agendador/parar',
+  'preview',
+]);
+
 function chavesIguais(recebida: string, esperada: string) {
   const a = Buffer.from(recebida);
   const b = Buffer.from(esperada);
@@ -11,52 +24,44 @@ function chavesIguais(recebida: string, esperada: string) {
 
 async function encaminhar(
   request: NextRequest,
-  contexto: { params: Promise<{ acao: string }> },
+  contexto: { params: Promise<{ acao: string[] }> },
 ) {
   const { acao } = await contexto.params;
-  if (![
-    'status',
-    'historico',
-    'historico-mensagens',
-    'resumos-atualizacoes',
-    'resumos-atualizacoes-teste',
-    'executar',
-    'parar',
-    'sieg-status',
-    'sieg-executar',
-    'sieg-parar',
-    'agendador-status',
-    'agendador-configurar',
-    'saude',
-  ].includes(acao)) {
+  const caminho = acao.join('/');
+  if (!acoesPermitidas.has(caminho)) {
     return NextResponse.json({ erro: 'Acao invalida' }, { status: 404 });
   }
 
   const chaveAdmin = process.env.AUTOMACAO_ADMIN_KEY || '';
   const chaveRecebida = request.headers.get('X-Admin-Key') || '';
   if (!chaveAdmin || !chavesIguais(chaveRecebida, chaveAdmin)) {
-    return NextResponse.json({ erro: 'Acesso administrativo negado' }, { status: 401 });
+    return NextResponse.json(
+      { erro: 'Acesso administrativo negado' },
+      { status: 401 },
+    );
   }
 
   const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
   if (!chaveBackend) {
     return NextResponse.json(
-      { erro: 'Execucao da automacao nao configurada' },
+      { erro: 'Integracao de notificacoes nao configurada' },
       { status: 503 },
     );
   }
 
-  const resposta = await fetch(`${backendUrl}/api/automacao/${acao}`, {
+  const destino = new URL(`${backendUrl}/api/notificacao/${caminho}`);
+  destino.search = request.nextUrl.search;
+  const resposta = await fetch(destino, {
     method: request.method,
     headers: {
       'Content-Type': 'application/json',
       'X-Automation-Key': chaveBackend,
     },
-    body: request.method === 'POST' ? await request.text() : undefined,
+    body: request.method === 'GET' ? undefined : await request.text(),
     cache: 'no-store',
   });
-  const texto = await resposta.text();
-  return new NextResponse(texto, {
+
+  return new NextResponse(await resposta.text(), {
     status: resposta.status,
     headers: { 'Content-Type': 'application/json' },
   });

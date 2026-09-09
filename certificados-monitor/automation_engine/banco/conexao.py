@@ -5,7 +5,7 @@ import pyodbc
 from dotenv import load_dotenv
 try:
     from automation_engine.utils.caminhos import obter_pasta_aplicacao
-except ImportError:  # Compatibilidade com a execuÃ§Ã£o direta da automaÃ§Ã£o.
+except ImportError:  # Compatibilidade com a execução direta da automação.
     from utils.caminhos import obter_pasta_aplicacao
 
 

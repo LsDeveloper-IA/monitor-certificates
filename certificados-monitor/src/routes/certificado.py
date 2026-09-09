@@ -2,7 +2,7 @@ import hmac
 import os
 
 from flask import Blueprint, request, jsonify
-from datetime import datetime, date, timedelta
+from datetime import datetime, date, timedelta, timezone
 from src.models.certificado import db, Certificado
 from src.services.sincronizacao import sincronizar_certificados
 
@@ -17,15 +17,21 @@ def chave_integracao_valida():
     return hmac.compare_digest(chave_configurada, chave_recebida)
 
 
+@certificado_bp.before_request
+def proteger_escritas():
+    if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
+        return None
+    autenticado = chave_integracao_valida()
+    if autenticado is None:
+        return jsonify({'erro': 'Integracao nao configurada no servidor'}), 503
+    if not autenticado:
+        return jsonify({'erro': 'Chave de integracao invalida'}), 401
+    return None
+
+
 @certificado_bp.route('/certificados/sincronizar', methods=['POST'])
 def sincronizar_certificados_rota():
     """Recebe em lote os resultados produzidos pela automação."""
-    autenticado = chave_integracao_valida()
-    if autenticado is None:
-        return jsonify({'erro': 'Integração não configurada no servidor'}), 503
-    if not autenticado:
-        return jsonify({'erro': 'Chave de integração inválida'}), 401
-
     try:
         dados = request.get_json(silent=True) or {}
         resultado = sincronizar_certificados(
@@ -131,7 +137,7 @@ def atualizar_certificado(id):
         if 'arquivo_drive_id' in dados:
             certificado.arquivo_drive_id = dados['arquivo_drive_id']
         
-        certificado.data_atualizacao = datetime.utcnow()
+        certificado.data_atualizacao = datetime.now(timezone.utc)
         db.session.commit()
         
         return jsonify(certificado.to_dict()), 200
@@ -145,7 +151,7 @@ def deletar_certificado(id):
     try:
         certificado = Certificado.query.get_or_404(id)
         certificado.ativo = False
-        certificado.data_atualizacao = datetime.utcnow()
+        certificado.data_atualizacao = datetime.now(timezone.utc)
         db.session.commit()
         
         return jsonify({'mensagem': 'Certificado desativado com sucesso'}), 200
