@@ -17,7 +17,16 @@ class ErroWhatsContabil(Exception):
 
 def _arquivo_multipart(caminho_arquivo, arquivo_aberto):
     """Monta o anexo com nome e MIME exigidos pela Cloud API da Meta."""
-    tipo_mime, _ = mimetypes.guess_type(caminho_arquivo.name)
+    # No Windows, guess_type depende do registro e pode nao reconhecer Excel
+    # em maquinas sem Office. Os formatos dos nossos relatorios sao fixos.
+    tipos_relatorio = {
+        ".pdf": "application/pdf",
+        ".xlsx": "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        ".xls": "application/vnd.ms-excel",
+    }
+    tipo_mime = tipos_relatorio.get(caminho_arquivo.suffix.lower())
+    if tipo_mime is None:
+        tipo_mime, _ = mimetypes.guess_type(caminho_arquivo.name)
     return (
         caminho_arquivo.name,
         arquivo_aberto,

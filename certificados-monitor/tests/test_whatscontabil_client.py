@@ -11,6 +11,7 @@ if str(PASTA_MOTOR) not in sys.path:
 
 from integracoes.whatscontabil import (
     ErroWhatsContabil,
+    _arquivo_multipart,
     _interpretar_erro_http,
     enviar_midia,
     enviar_template,
@@ -18,6 +19,30 @@ from integracoes.whatscontabil import (
 
 
 class WhatsContabilClientTestCase(unittest.TestCase):
+    @patch("integracoes.whatscontabil.mimetypes.guess_type")
+    def test_mime_dos_relatorios_independe_do_registro_windows(self, guess):
+        for extensao, esperado in (
+            (".xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            (".XLSX", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+            (".pdf", "application/pdf"),
+            (".xls", "application/vnd.ms-excel"),
+        ):
+            for resposta in ((None, None), ("application/octet-stream", None)):
+                with self.subTest(extensao=extensao, registro=resposta):
+                    guess.return_value = resposta
+                    arquivo = Mock()
+                    nome, aberto, mime = _arquivo_multipart(Path("relatorio" + extensao), arquivo)
+                    self.assertEqual(mime, esperado)
+                    self.assertIs(aberto, arquivo)
+                    self.assertEqual(nome, "relatorio" + extensao)
+        guess.assert_not_called()
+
+    @patch("integracoes.whatscontabil.mimetypes.guess_type", return_value=(None, None))
+    def test_mime_desconhecido_continua_generico(self, guess):
+        _, _, mime = _arquivo_multipart(Path("arquivo.extensao-desconhecida"), Mock())
+        self.assertEqual(mime, "application/octet-stream")
+        guess.assert_called_once()
+
     def test_erro_http_exibe_detalhe_aninhado_da_api(self):
         resposta = Mock(status_code=400)
         resposta.json.return_value = {
