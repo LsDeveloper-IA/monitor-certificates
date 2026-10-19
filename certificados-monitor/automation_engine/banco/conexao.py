@@ -34,7 +34,7 @@ def conectar_banco():
 
     partes_conexao = [f"DSN={dsn}"]
 
-    # No computador atual, o DSN Producao já possui autenticação.
+    # O DSN pode possuir autenticação própria (por exemplo, srvcontabil).
     # Estes campos continuam opcionais para outros ambientes.
     if usuario and senha:
         partes_conexao.extend([f"UID={usuario}", f"PWD={senha}"])

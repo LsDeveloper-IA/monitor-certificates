@@ -1,0 +1,69 @@
+name: Validar e atualizar servidor Windows
+
+on:
+  push:
+    branches: [automacao_certificados]
+    paths:
+      - 'certificados-monitor/**'
+      - 'certificados-frontend/**'
+      - 'scripts/windows/**'
+      - '.github/workflows/windows-local.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: servidor-windows-local
+  cancel-in-progress: false
+
+jobs:
+  validar:
+    if: github.ref == 'refs/heads/automacao_certificados' && github.repository == 'LsDeveloper-IA/monitor-certificates'
+    runs-on: windows-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: certificados-frontend/package-lock.json
+      - name: Dependencias Python
+        run: python -m pip install -r certificados-monitor/requirements.txt
+      - name: Testes do backend (sem mensagens ou banco externo)
+        working-directory: certificados-monitor
+        run: python -m pytest -q
+      - name: Testes do instalador
+        shell: pwsh
+        run: ./scripts/windows/testar-deploy.ps1
+      - name: Dependencias do frontend
+        working-directory: certificados-frontend
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+      - name: Build do frontend
+        working-directory: certificados-frontend
+        run: npm run build
+
+  atualizar:
+    needs: validar
+    if: vars.DEPLOY_WINDOWS_ENABLED == 'true'
+    environment: windows-local
+    runs-on: [self-hosted, Windows, X64, monitor-certificados]
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Atualizar instalacao existente
+        shell: powershell
+        env:
+          MONITOR_INSTALL_ROOT: ${{ vars.MONITOR_INSTALL_ROOT }}
+        run: |
+          $destino = $env:MONITOR_INSTALL_ROOT
+          if (-not $destino) { $destino = 'D:\Projetos\monitor-certificates' }
+          ./scripts/windows/atualizar.ps1 -InstallRoot $destino

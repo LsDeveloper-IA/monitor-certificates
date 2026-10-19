@@ -30,6 +30,9 @@ __pycache__/
 # Geral
 .DS_Store
 .env
+.env.*
+!.env.example
+.venv/
 credentials.json
 token*.json
 token*.pickle
