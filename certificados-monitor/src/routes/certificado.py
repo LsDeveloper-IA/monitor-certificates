@@ -1,10 +1,11 @@
 import hmac
 import os
 
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, date, timedelta, timezone
 from src.models.certificado import db, Certificado
 from src.services.sincronizacao import sincronizar_certificados
+from src.services.exportacao_excel import COLUNAS, gerar_excel_certificados
 
 certificado_bp = Blueprint('certificado', __name__)
 
@@ -53,6 +54,34 @@ def listar_certificados():
         return jsonify([cert.to_dict() for cert in certificados]), 200
     except Exception as e:
         return jsonify({'erro': str(e)}), 500
+
+@certificado_bp.route('/certificados/exportar-excel', methods=['GET'])
+def exportar_excel():
+    colunas = request.args.get('colunas', '').split(',')
+    if not colunas or len(set(colunas)) != len(colunas) or any(c not in COLUNAS for c in colunas):
+        return jsonify(erro='Selecione ao menos uma coluna valida, sem repeticoes.'), 400
+    consulta = Certificado.query.filter_by(ativo=True)
+    ids = None
+    if 'ids' in request.args:
+        try:
+            ids = [int(valor) for valor in request.args['ids'].split(',')]
+            if not ids or len(ids) > 5000 or any(i <= 0 for i in ids):
+                raise ValueError()
+        except ValueError:
+            return jsonify(erro='Selecao de certificados invalida.'), 400
+        consulta = consulta.filter(Certificado.id.in_(ids))
+    certificados = consulta.order_by(Certificado.id).all()
+    if ids:
+        ordem = {identificador: i for i, identificador in enumerate(ids)}
+        certificados.sort(key=lambda c: ordem[c.id])
+    if not certificados:
+        return jsonify(erro='Nenhum certificado encontrado para exportar.'), 400
+    resposta = send_file(gerar_excel_certificados(certificados, colunas),
+        mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        as_attachment=True, download_name=f'certificados_{date.today().isoformat()}.xlsx')
+    resposta.headers['Cache-Control'] = 'private, no-store'
+    return resposta
+
 
 @certificado_bp.route('/certificados/<int:id>', methods=['GET'])
 def obter_certificado(id):

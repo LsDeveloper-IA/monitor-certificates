@@ -72,6 +72,12 @@ Logs e históricos de execução são gravados em `runtime/`.
 
 ## Histórico de acompanhamento dos certificados
 
+Na lista de certificados, **Exportar Excel** permite escolher colunas e baixar
+todos os certificados ativos ou os resultados dos filtros (todas as páginas,
+na ordenação selecionada). CPF/CNPJ e telefone são preservados como texto;
+vencimento é uma data do Excel. A exportação não altera o banco nem a planilha
+de origem e não inclui credenciais, senhas ou imagens do histórico.
+
 Abra um certificado e selecione **Histórico** para registrar observações com
 nome informado pelo operador, data/hora do servidor e até três imagens
 JPG/PNG/WebP de 5 MB cada. O horário exibido usa Brasília.

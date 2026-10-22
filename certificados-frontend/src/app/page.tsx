@@ -26,6 +26,7 @@ import {
   FileWarning
 } from 'lucide-react';
 import CertificadoModal from '@/components/CertificadoModal';
+import ExportarCertificados from '@/components/ExportarCertificados';
 import ConfigModal from '@/components/ConfigModal';
 import AutomationStatusBanner from '@/components/AutomationStatusBanner';
 import AutomationActivityPanel from '@/components/AutomationActivityPanel';
@@ -806,6 +807,8 @@ export default function Home() {
                 </p>
               )}
             </div>
+            <div className="flex flex-wrap items-center gap-3">
+            <ExportarCertificados idsFiltrados={certificadosOrdenados.map(c => c.id)} total={certificados.length} />
             <label className="text-sm text-gray-600 flex items-center gap-2">
               Itens por página
               <select
@@ -818,6 +821,7 @@ export default function Home() {
                 <option value={50}>50</option>
               </select>
             </label>
+            </div>
           </div>
           
           <div className="hidden max-h-[70vh] w-full overflow-y-auto md:block">
