@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { X, Save, Building, User } from 'lucide-react';
+import CertificadoHistorico from './CertificadoHistorico';
 
 interface CertificadoModalProps {
   isOpen: boolean;
@@ -36,6 +37,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
 
   const [loading, setLoading] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const [aba, setAba] = useState<'dados' | 'historico'>('dados');
 
   useEffect(() => {
     if (!isOpen) return;
@@ -50,6 +52,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
       observacoes: certificado?.observacoes || '',
     });
     setErrors({});
+    setAba('dados');
   }, [certificado, isOpen]);
 
   if (!isOpen) return null;
@@ -123,10 +126,12 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
     <div className="modal-backdrop fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
       <div className="modal-panel bg-white rounded-lg w-full max-w-2xl max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-6 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <div className="min-w-0 pr-3"><h3 className="text-lg font-semibold text-gray-900">
             {somenteLeitura ? 'Detalhes do Certificado' : certificado ? 'Editar Certificado' : 'Novo Certificado'}
           </h3>
+          {certificado && <p className="text-sm text-gray-500 mt-1 break-words">{certificado.nome_empresa}</p>}</div>
           <button
+            aria-label="Fechar detalhes"
             onClick={onClose}
             className="text-gray-400 hover:text-gray-600"
           >
@@ -134,6 +139,17 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
           </button>
         </div>
 
+        {certificado && (
+          <div className="certificate-history-tabs flex gap-6 px-6 border-b" aria-label="Seções do certificado">
+            {(['dados', 'historico'] as const).map(item => (
+              <button key={item} type="button" aria-pressed={aba === item} onClick={() => setAba(item)}
+                className={`py-3 text-sm font-medium border-b-2 cursor-pointer ${aba === item ? 'border-blue-500 text-blue-600' : 'border-transparent text-gray-500 hover:text-blue-600'}`}>
+                {item === 'dados' ? 'Dados' : 'Histórico'}
+              </button>
+            ))}
+          </div>
+        )}
+        <div hidden={aba !== 'dados'}>
         <form onSubmit={handleSubmit} className="p-6 space-y-6">
           {errors.submit && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded">
@@ -311,6 +327,8 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
             )}
           </div>
         </form>
+        </div>
+        {certificado && <div hidden={aba !== 'historico'}><CertificadoHistorico key={certificado.id} certificadoId={certificado.id} ativo={aba === 'historico'} /></div>}
       </div>
     </div>
   );

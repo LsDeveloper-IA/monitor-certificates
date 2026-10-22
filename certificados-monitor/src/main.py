@@ -15,6 +15,7 @@ from src.routes.notificacao import notificacao_bp
 from src.routes.automacao import automacao_bp
 from src.routes.whatscontabil import whatscontabil_bp
 from src.routes.relatorio import relatorio_bp
+from src.routes.historico import historico_bp
 from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
 from src.services.agendador_automacao import agendador_automacao
@@ -40,6 +41,7 @@ app.register_blueprint(notificacao_bp, url_prefix='/api')
 app.register_blueprint(automacao_bp, url_prefix='/api')
 app.register_blueprint(whatscontabil_bp, url_prefix='/api')
 app.register_blueprint(relatorio_bp, url_prefix='/api')
+app.register_blueprint(historico_bp, url_prefix='/api')
 
 # uncomment if you need to use database
 app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"

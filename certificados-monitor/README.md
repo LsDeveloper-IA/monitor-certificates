@@ -69,3 +69,25 @@ O teste manual que envia um resumo fictício está separado em
 envio for autorizado.
 
 Logs e históricos de execução são gravados em `runtime/`.
+
+## Histórico de acompanhamento dos certificados
+
+Abra um certificado e selecione **Histórico** para registrar observações com
+nome informado pelo operador, data/hora do servidor e até três imagens
+JPG/PNG/WebP de 5 MB cada. O horário exibido usa Brasília.
+
+O histórico não exige chave administrativa no painel local: quem acessa o site
+pode consultar observações e imagens e adicionar registros. Mantenha o site
+restrito ao ambiente autorizado. A chave interna fica somente no servidor;
+configurações e execução da automação continuam protegidas. O nome informado
+não equivale a uma identidade de usuário autenticada. Os registros ficam
+vinculados ao ID do certificado. Qualquer usuário do painel local pode editar
+o texto (com data de edição) ou excluir um registro e seus anexos, mediante
+confirmação. A edição preserva autor, data original e imagens.
+Não são sobrescritos pela sincronização nem alteram as observações técnicas.
+
+As tabelas são criadas ao iniciar o backend. Registros e imagens ficam no banco
+`src/database/app.db`; inclua esse banco nos backups, inclusive para preservar
+os anexos. As imagens são validadas e reprocessadas antes do armazenamento e
+não recebem um endereço público. Reinicie o backend e reconstrua o frontend
+para disponibilizar esta funcionalidade em uma instalação existente.

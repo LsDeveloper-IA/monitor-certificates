@@ -1,5 +1,9 @@
 @import "tailwindcss";
 
+html.dark .certificate-history-tabs button[aria-pressed="true"] {
+  color: #93c5fd;
+}
+
 :root {
   --background: #ffffff;
   --foreground: #171717;
