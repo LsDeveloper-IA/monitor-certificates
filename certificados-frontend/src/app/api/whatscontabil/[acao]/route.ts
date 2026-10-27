@@ -18,10 +18,54 @@ async function encaminhar(
     return NextResponse.json({ erro: 'Acao invalida' }, { status: 404 });
   }
 
-  const chaveAdmin = process.env.AUTOMACAO_ADMIN_KEY || '';
-  const chaveRecebida = request.headers.get('X-Admin-Key') || '';
-  if (!chaveAdmin || !chavesIguais(chaveRecebida, chaveAdmin)) {
-    return NextResponse.json({ erro: 'Acesso administrativo negado' }, { status: 401 });
+  const chaveAdmin = (process.env.AUTOMACAO_ADMIN_KEY || '').trim();
+  const chaveRecebida = (request.headers.get('X-Admin-Key') || '').trim();
+  const origem = request.headers.get('origin') || '';
+  const host = request.headers.get('host') || '';
+
+  function hostLocal(valor: string) {
+    const hostSemPorta = (valor || '')
+      .replace(/^https?:\/\//, '')
+      .split('/')[0]
+      .split(':')[0]
+      .replace(/^\[/, '')
+      .replace(/\]$/, '');
+    if (!hostSemPorta) return false;
+    if (
+      hostSemPorta === 'localhost' ||
+      hostSemPorta === '127.0.0.1' ||
+      hostSemPorta === '::1'
+    ) {
+      return true;
+    }
+    const partes = hostSemPorta.split('.');
+    if (
+      partes.length === 4 &&
+      partes.every((parte) => /^\d+$/.test(parte))
+    ) {
+      const [primeiro, segundo] = partes.map(Number);
+      if (primeiro === 10) return true;
+      if (primeiro === 192 && segundo === 168) return true;
+      if (primeiro === 172 && segundo >= 16 && segundo <= 31) return true;
+    }
+    return false;
+  }
+
+  const ambienteLocal = process.env.NODE_ENV !== 'production' || hostLocal(host) || hostLocal(origem);
+
+  const acessoPermitido =
+    !chaveRecebida && ambienteLocal
+      ? true
+      : !!chaveAdmin && chavesIguais(chaveRecebida, chaveAdmin);
+
+  if (!acessoPermitido) {
+    return NextResponse.json(
+      {
+        erro:
+          'Acesso administrativo negado. Informe a chave configurada em AUTOMACAO_ADMIN_KEY ou execute a aplicacao em localhost/127.0.0.1.',
+      },
+      { status: 401 },
+    );
   }
 
   const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
