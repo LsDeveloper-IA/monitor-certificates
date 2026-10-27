@@ -73,14 +73,22 @@ async function encaminhar(
     return NextResponse.json({ erro: 'Integracao nao configurada' }, { status: 503 });
   }
 
-  const resposta = await fetch(`${backendUrl}/api/whatscontabil/${acao}`, {
-    method: request.method,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Automation-Key': chaveBackend,
-    },
-    cache: 'no-store',
-  });
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${backendUrl}/api/whatscontabil/${acao}`, {
+      method: request.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Automation-Key': chaveBackend,
+      },
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { erro: 'Backend indisponivel. Verifique se o Flask esta rodando na porta 5000.' },
+      { status: 503 },
+    );
+  }
   return new NextResponse(await resposta.text(), {
     status: resposta.status,
     headers: { 'Content-Type': 'application/json' },

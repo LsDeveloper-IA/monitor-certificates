@@ -91,15 +91,23 @@ async function encaminhar(
     );
   }
 
-  const resposta = await fetch(`${backendUrl}/api/automacao/${acao}`, {
-    method: request.method,
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Automation-Key': chaveBackend,
-    },
-    body: request.method === 'POST' ? await request.text() : undefined,
-    cache: 'no-store',
-  });
+  let resposta: Response;
+  try {
+    resposta = await fetch(`${backendUrl}/api/automacao/${acao}`, {
+      method: request.method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Automation-Key': chaveBackend,
+      },
+      body: request.method === 'POST' ? await request.text() : undefined,
+      cache: 'no-store',
+    });
+  } catch {
+    return NextResponse.json(
+      { erro: 'Backend indisponivel. Verifique se o Flask esta rodando na porta 5000.' },
+      { status: 503 },
+    );
+  }
   const texto = await resposta.text();
   return new NextResponse(texto, {
     status: resposta.status,
