@@ -17,23 +17,22 @@ certificados-monitor/automation_engine/logs/
 certificados-monitor/automation_engine/dados/
 certificados-frontend/.env.local
 certificados-monitor/*.pyc
-__pycache__/
-*.pyc
+**/__pycache__/
 *.py[cod]
-*.db
-.pytest_cache/
-
-# Bancos de dados locais
-*.db
-*.sqlite3
 
 # Geral
 .DS_Store
 .env
-.env.*
-!.env.example
-.venv/
 credentials.json
 token*.json
 token*.pickle
 certificados-monitor/*.log
+
+# Dados locais e resultados gerados (inclui SQLite com dados de execucao)
+certificados-monitor/src/database/*.db
+Auto_NC/*.json
+Auto_NC/*.csv
+Auto_NC/*.xlsx
+Auto_NC/*.log
+Auto_NC/*.db
+Auto_NC/*.sqlite*
