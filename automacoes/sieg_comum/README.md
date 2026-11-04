@@ -1,8 +1,8 @@
 # Integrações Compartilhadas do SIEG
 
-Pacote Python usado por `automacao-sieg` e `Auto_NC`. Ele concentra operações
-que antes existiam em duplicidade e não inicia navegador nem carrega `.env` ao
-ser importado.
+Pacote Python usado por `automacoes/sieg` e `automacoes/auto_nc`. Ele concentra
+operações que antes existiam em duplicidade e não inicia navegador nem carrega
+`.env` ao ser importado.
 
 ## Módulos
 
@@ -34,19 +34,20 @@ atualização ainda usa um caminho relativo, limitado ao diálogo visível.
 
 ## Uso
 
-As duas entradas adicionam a raiz do repositório ao caminho de imports:
+As duas entradas adicionam a pasta `automacoes/` ao caminho de imports:
 
-- `automacao-sieg/_bootstrap.py`
-- `Auto_NC/main.py`
+- `automacoes/sieg/_bootstrap.py`
+- `automacoes/auto_nc/main.py`
 
 Por isso, mantenha `sieg_comum/` no mesmo nível das pastas das automações. O
 pacote não possui processo independente.
 
 ## Testes
 
-Na raiz do repositório:
+Na pasta `automacoes`:
 
 ```powershell
+cd automacoes
 python -X utf8 -m unittest discover -s sieg_comum/tests
 ```
 

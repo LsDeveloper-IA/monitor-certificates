@@ -533,9 +533,12 @@ executor_sieg_automacao = ExecutorAutomacao(
     arquivo_historico=pasta_storage() / "runtime" / "historico_sieg.json",
     pastas_motores={
         "certificados_vencidos": Path(__file__).resolve().parents[3]
-        / "automacao-sieg",
-        "auto_nc": Path(__file__).resolve().parents[3] / "Auto_NC",
-        "conthabil": Path(__file__).resolve().parents[3] / "automacao-conthabil",
+        / "automacoes"
+        / "sieg",
+        "auto_nc": Path(__file__).resolve().parents[3] / "automacoes" / "auto_nc",
+        "conthabil": Path(__file__).resolve().parents[3]
+        / "automacoes"
+        / "conthabil",
     },
     nomes_motores={
         "certificados_vencidos": "Certificados vencidos (SIEG)",

@@ -48,7 +48,7 @@ A ordem de busca é:
 1. `GOOGLE_DRIVE_CREDENCIAIS_DIR`, quando informado;
 2. `storage/secrets/auto_nc/`;
 3. `storage/secrets/backend/`;
-4. `automacao-conthabil/credenciais/`;
+4. `automacoes/conthabil/credenciais/`;
 5. raiz do repositório.
 
 Se o token expirar e não puder ser renovado, gere um novo executando uma das
@@ -57,7 +57,7 @@ outras automações do projeto e copie o `token.json`.
 ## Execução isolada
 
 ```powershell
-cd automacao-conthabil
+cd automacoes/conthabil
 python -m pip install -r requirements.txt
 python main.py
 ```

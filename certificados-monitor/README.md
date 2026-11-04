@@ -41,8 +41,8 @@ outro diretório de dados em produção.
 - `/api/certificados`: consulta e manutenção dos certificados.
 - `/api/automacao/*`: execução, interrupção, saúde, histórico e agendamento do
   motor de monitoramento.
-- `/api/automacao/sieg-*`: execução sequencial de `automacao-sieg`, `Auto_NC` e
-  `automacao-conthabil`.
+- `/api/automacao/sieg-*`: execução sequencial de `automacoes/sieg`,
+  `automacoes/auto_nc` e `automacoes/conthabil`.
 - `GET /api/relatorios/certificados-vencidos`: consolida os relatórios SIEG.
 - `/api/whatscontabil/*`: validação da integração de mensagens.
 
@@ -51,10 +51,10 @@ criar uma duplicata equivalente. O endpoint não envia mensagens por si só.
 
 ## Execução sequencial
 
-`ExecutorAutomacao` inicia `automacao-sieg` e aguarda seu encerramento. Somente
-após código de saída zero inicia `Auto_NC` e, em seguida, `automacao-conthabil`.
-Uma falha ou solicitação de parada marca as etapas seguintes como não
-executadas, evitando sessões concorrentes.
+`ExecutorAutomacao` inicia `automacoes/sieg` e aguarda seu encerramento. Somente
+após código de saída zero inicia `automacoes/auto_nc` e, em seguida,
+`automacoes/conthabil`. Uma falha ou solicitação de parada marca as etapas
+seguintes como não executadas, evitando sessões concorrentes.
 
 ## Testes
 

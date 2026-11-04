@@ -17,9 +17,9 @@ $privateFiles = @(
     'certificados-frontend/.next/server/app/page.js',
     'certificados-monitor/../fora.py',
     'certificados-monitor/../../fora.py',
-    'automacao-sieg/main.py',
-    'Auto_NC/main.py',
-    'sieg_comum/drive.py'
+    'automacoes/sieg/main.py',
+    'automacoes/auto_nc/main.py',
+    'automacoes/sieg_comum/drive.py'
 )
 foreach ($path in $privateFiles) {
     if (Test-DeployablePath $path) { throw "Arquivo privado aceito: $path" }

@@ -30,18 +30,18 @@ $suites = @(
         Argumentos = @("-m", "unittest", "discover", "-s", "tests")
     },
     @{
-        Nome = "automacao-sieg"
-        Pasta = "automacao-sieg"
+        Nome = "sieg"
+        Pasta = "automacoes/sieg"
         Argumentos = @("-m", "unittest", "discover", "-s", "tests")
     },
     @{
-        Nome = "Auto_NC"
-        Pasta = "Auto_NC"
+        Nome = "auto_nc"
+        Pasta = "automacoes/auto_nc"
         Argumentos = @("-m", "unittest", "discover", "-s", "tests")
     },
     @{
         Nome = "sieg_comum"
-        Pasta = "."
+        Pasta = "automacoes"
         Argumentos = @("-m", "unittest", "discover", "-s", "sieg_comum/tests")
     }
 )

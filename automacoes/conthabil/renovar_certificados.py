@@ -465,7 +465,7 @@ def main(argv: list[str] | None = None) -> int:
         return os.getenv(chave) or config.get(chave) or padrao
 
     pasta_storage = Path(
-        os.getenv("STORAGE_DIR", "").strip() or (base.parent / "storage")
+        os.getenv("STORAGE_DIR", "").strip() or (base.parents[1] / "storage")
     ).expanduser()
     if not pasta_storage.is_absolute():
         pasta_storage = base / pasta_storage

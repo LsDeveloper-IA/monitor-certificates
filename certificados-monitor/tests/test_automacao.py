@@ -293,9 +293,9 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
     def test_configura_os_tres_motores_de_automacao(self):
         pasta_repositorio = Path(__file__).resolve().parents[2]
         pasta_certificados = pasta_repositorio / "certificados-monitor" / "automation_engine"
-        pasta_antiga = pasta_repositorio / "automacao-sieg"
-        pasta_auto_nc = pasta_repositorio / "Auto_NC"
-        pasta_conthabil = pasta_repositorio / "automacao-conthabil"
+        pasta_antiga = pasta_repositorio / "automacoes" / "sieg"
+        pasta_auto_nc = pasta_repositorio / "automacoes" / "auto_nc"
+        pasta_conthabil = pasta_repositorio / "automacoes" / "conthabil"
 
         self.assertTrue((pasta_certificados / "main.py").exists())
         self.assertTrue((pasta_auto_nc / "main.py").exists())
@@ -319,10 +319,10 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
     def test_executa_sieg_auto_nc_e_conthabil_sem_sobrepor_processos(self):
         with tempfile.TemporaryDirectory() as pasta:
             raiz = Path(pasta)
-            pasta_sieg = raiz / "automacao-sieg"
-            pasta_auto_nc = raiz / "Auto_NC"
-            pasta_conthabil = raiz / "automacao-conthabil"
-            pasta_sieg.mkdir()
+            pasta_sieg = raiz / "automacoes" / "sieg"
+            pasta_auto_nc = raiz / "automacoes" / "auto_nc"
+            pasta_conthabil = raiz / "automacoes" / "conthabil"
+            pasta_sieg.mkdir(parents=True)
             pasta_auto_nc.mkdir()
             pasta_conthabil.mkdir()
             (pasta_sieg / "main.py").touch()
@@ -372,21 +372,21 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertEqual(
             eventos,
             [
-                "inicio:automacao-sieg",
-                "fim:automacao-sieg",
-                "inicio:Auto_NC",
-                "fim:Auto_NC",
-                "inicio:automacao-conthabil",
-                "fim:automacao-conthabil",
+                "inicio:sieg",
+                "fim:sieg",
+                "inicio:auto_nc",
+                "fim:auto_nc",
+                "inicio:conthabil",
+                "fim:conthabil",
             ],
         )
 
     def test_nao_inicia_auto_nc_quando_automacao_sieg_falha(self):
         with tempfile.TemporaryDirectory() as pasta:
             raiz = Path(pasta)
-            pasta_sieg = raiz / "automacao-sieg"
-            pasta_auto_nc = raiz / "Auto_NC"
-            pasta_sieg.mkdir()
+            pasta_sieg = raiz / "automacoes" / "sieg"
+            pasta_auto_nc = raiz / "automacoes" / "auto_nc"
+            pasta_sieg.mkdir(parents=True)
             pasta_auto_nc.mkdir()
             (pasta_sieg / "main.py").touch()
             (pasta_auto_nc / "main.py").touch()

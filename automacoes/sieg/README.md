@@ -53,8 +53,8 @@ python main.py
 ```
 
 O `main.py` faz até três tentativas completas. O intervalo cresce a cada falha.
-Quando iniciada pelo painel, esta automação sempre termina antes de `Auto_NC`
-começar.
+Quando iniciada pelo painel, esta automação sempre termina antes de
+`automacoes/auto_nc` começar.
 
 ## Retomada e arquivos gerados
 
@@ -75,11 +75,12 @@ enviado para `DRIVE_RELATORIOS_FOLDER_ID`.
 
 Modais são localizados pelo último diálogo visível. Botões e opções usam papel,
 rótulo ou tooltip, evitando índices absolutos como `div[5]` e `div[6]`. Login,
-navegação, UF e Google Drive ficam em `sieg_comum/`.
+navegação, UF e Google Drive ficam em `automacoes/sieg_comum/`.
 
 ## Testes
 
 ```powershell
+cd automacoes/sieg
 python -X utf8 -m unittest discover -s tests
 ```
 

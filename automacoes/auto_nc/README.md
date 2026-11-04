@@ -44,9 +44,9 @@ Os dois IDs de pasta são obrigatórios. A primeira autorização do Google pode
 abrir o fluxo OAuth; depois, a credencial é persistida em
 `storage/secrets/auto_nc/token.json`.
 
-Se `GOOGLE_DRIVE_FOLDER_ID` não for informado no `Auto_NC/.env`, o valor é
-herdado do `.env` da raiz do projeto. A pasta precisa ser a que contém uma
-subpasta por empresa (com o `.pfx` e o arquivo de senha), não a pasta de
+Se `GOOGLE_DRIVE_FOLDER_ID` não for informado no `automacoes/auto_nc/.env`, o
+valor é herdado do `.env` da raiz do projeto. A pasta precisa ser a que contém
+uma subpasta por empresa (com o `.pfx` e o arquivo de senha), não a pasta de
 relatórios.
 
 ## Instalação e execução isolada
@@ -57,13 +57,14 @@ python -m playwright install chromium
 python main.py
 ```
 
-O caminho válido é `Auto_NC/main.py`. A antiga pasta aninhada
-`Auto_NC/Auto_NC/` não faz parte da execução.
+O caminho válido é `automacoes/auto_nc/main.py`.
 
 ## Testes
 
 ```powershell
+cd automacoes/auto_nc
 python -X utf8 -m unittest discover -s tests
 ```
 
-O pacote `sieg_comum` deve permanecer na raiz do repositório.
+O pacote compartilhado fica em `automacoes/sieg_comum/` e é importado pelas
+automações do SIEG e do Auto_NC.

@@ -33,7 +33,7 @@ def carregar_arquivo_env():
 carregar_arquivo_env()
 
 PASTA_STORAGE = Path(
-    os.getenv("STORAGE_DIR", "").strip() or (PASTA_EXECUCAO.parent / "storage")
+    os.getenv("STORAGE_DIR", "").strip() or (PASTA_EXECUCAO.parents[1] / "storage")
 ).expanduser()
 if not PASTA_STORAGE.is_absolute():
     PASTA_STORAGE = PASTA_EXECUCAO / PASTA_STORAGE

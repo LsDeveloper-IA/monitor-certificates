@@ -30,12 +30,12 @@ certificados-monitor/*.log
 
 # Dados locais e resultados gerados (inclui SQLite com dados de execucao)
 certificados-monitor/src/database/*.db
-Auto_NC/*.json
-Auto_NC/*.csv
-Auto_NC/*.xlsx
-Auto_NC/*.log
-Auto_NC/*.db
-Auto_NC/*.sqlite*
+automacoes/auto_nc/*.json
+automacoes/auto_nc/*.csv
+automacoes/auto_nc/*.xlsx
+automacoes/auto_nc/*.log
+automacoes/auto_nc/*.db
+automacoes/auto_nc/*.sqlite*
 
 # Ambiente e dependencias
 .venv/
@@ -47,5 +47,5 @@ storage/*
 !storage/.gitkeep
 
 # Saidas locais das automacoes
-automacao-sieg/registros/
-automacao-conthabil/dados/
+automacoes/sieg/registros/
+automacoes/conthabil/dados/

@@ -6,6 +6,7 @@ on:
     paths:
       - 'certificados-monitor/**'
       - 'certificados-frontend/**'
+      - 'automacoes/**'
       - 'scripts/windows/**'
       - '.github/workflows/windows-local.yml'
   workflow_dispatch:

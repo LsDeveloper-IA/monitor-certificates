@@ -12,7 +12,7 @@ import sys
 from pathlib import Path
 
 BASE = Path(__file__).resolve().parent
-RAIZ = BASE.parent
+RAIZ = BASE.parents[1]
 if str(BASE) not in sys.path:
     sys.path.insert(0, str(BASE))
 

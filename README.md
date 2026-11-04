@@ -11,10 +11,10 @@ compartilhado entre elas.
 | --- | --- |
 | `certificados-frontend/` | Painel Next.js para certificados, pendências, relatórios e automações. |
 | `certificados-monitor/` | API Flask, banco local, agendamentos, integrações e executor dos motores. |
-| `automacao-sieg/` | Atualiza no SIEG os certificados vencidos encontrados no Google Drive. |
-| `Auto_NC/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
-| `automacao-conthabil/` | Renova certificados no portal Conthabil usando os arquivos do Google Drive. |
-| `sieg_comum/` | Login, navegação e cliente do Drive usados pelas automações do SIEG. |
+| `automacoes/sieg/` | Atualiza no SIEG os certificados vencidos encontrados no Google Drive. |
+| `automacoes/auto_nc/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
+| `automacoes/conthabil/` | Renova certificados no portal Conthabil usando os arquivos do Google Drive. |
+| `automacoes/sieg_comum/` | Login, navegação e cliente do Drive usados pelas automações do SIEG. |
 | `scripts/` | Inicialização do ambiente local e execução dos testes. |
 | `storage/` | Dados gerados: banco, logs, relatórios, planilhas e credenciais. Fora do Git. |
 
@@ -23,10 +23,10 @@ compartilhado entre elas.
 Ao iniciar a automação pelo painel, o backend executa os motores em uma única
 fila:
 
-1. `automacao-sieg`: procura e atualiza certificados vencidos no SIEG.
-2. `Auto_NC`: lê a lista após as atualizações e identifica quem continua sem
-   certificado no SIEG.
-3. `automacao-conthabil`: renova os certificados vencidos no portal Conthabil.
+1. `automacoes/sieg`: procura e atualiza certificados vencidos no SIEG.
+2. `automacoes/auto_nc`: lê a lista após as atualizações e identifica quem
+   continua sem certificado no SIEG.
+3. `automacoes/conthabil`: renova os certificados vencidos no portal Conthabil.
 
 Cada etapa só começa quando a anterior termina com sucesso. Se houver falha ou
 interrupção, as próximas não são iniciadas. Isso impede duas sessões
@@ -40,11 +40,11 @@ Requisitos: Python, Node.js, npm e Chromium do Playwright.
 cd certificados-monitor
 python -m pip install -r requirements.txt
 
-cd ..\automacao-sieg
+cd ..\automacoes\sieg
 python -m pip install -r requirements.txt
 python -m playwright install chromium
 
-cd ..\certificados-frontend
+cd ..\..\certificados-frontend
 npm install
 ```
 
@@ -52,9 +52,9 @@ Copie e preencha os exemplos de configuração de cada componente:
 
 - `certificados-monitor/.env.example` → `certificados-monitor/.env`
 - `certificados-frontend/.env.example` → `certificados-frontend/.env.local`
-- `automacao-sieg/.env.example` → `automacao-sieg/.env`
-- `Auto_NC/.env.example` → `Auto_NC/.env`
-- `automacao-conthabil/.env.example` → `automacao-conthabil/.env`
+- `automacoes/sieg/.env.example` → `automacoes/sieg/.env`
+- `automacoes/auto_nc/.env.example` → `automacoes/auto_nc/.env`
+- `automacoes/conthabil/.env.example` → `automacoes/conthabil/.env`
 
 Mantenha `.env`, `credentials.json`, `token.json`, bancos locais e relatórios
 fora do Git. Credenciais e tokens OAuth ficam em `storage/secrets/<componente>`:
@@ -103,13 +103,14 @@ Ou rode cada suite isoladamente:
 cd certificados-monitor
 python -X utf8 -m unittest discover -s tests
 
-cd ..\automacao-sieg
+cd ..\automacoes\sieg
 python -X utf8 -m unittest discover -s tests
 
-cd ..\Auto_NC
+cd ..\auto_nc
 python -X utf8 -m unittest discover -s tests
 
-cd ..
+cd ..\..
+cd automacoes
 python -X utf8 -m unittest discover -s sieg_comum/tests
 ```
 

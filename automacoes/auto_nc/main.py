@@ -3,6 +3,7 @@ import sys
 from pathlib import Path
 
 RAIZ = str(Path(__file__).resolve().parents[1])
+RAIZ_REPOSITORIO = Path(__file__).resolve().parents[2]
 
 
 def _resolver_pasta_storage():
@@ -11,9 +12,9 @@ def _resolver_pasta_storage():
     if configurada:
         caminho = Path(configurada).expanduser()
         if not caminho.is_absolute():
-            caminho = Path(RAIZ) / caminho
+            caminho = RAIZ_REPOSITORIO / caminho
         return caminho.resolve()
-    return Path(RAIZ) / "storage"
+    return RAIZ_REPOSITORIO / "storage"
 
 
 PASTA_STORAGE = _resolver_pasta_storage()
@@ -39,6 +40,7 @@ from googleapiclient.http import MediaFileUpload
 def carregar_arquivo_env():
     """Carrega variáveis .env sem substituir valores já definidos no ambiente."""
     arquivos_env = [
+        Path(__file__).resolve().parents[2] / ".env",
         Path(__file__).resolve().parents[1] / ".env",
         Path(__file__).with_name(".env"),
     ]
@@ -193,7 +195,7 @@ def enviar_relatorio_para_drive(servico_drive):
     """Cria ou atualiza o resumo final na pasta configurada do Drive."""
     if not ID_PASTA_DRIVE_RELATORIO:
         raise RuntimeError(
-            "Defina AUTO_NC_REPORT_FOLDER_ID no arquivo Auto_NC/.env."
+            "Defina AUTO_NC_REPORT_FOLDER_ID no arquivo automacoes/auto_nc/.env."
         )
     nome_arquivo = ARQUIVO_RELATORIO_SEM_CERTIFICADO.name
     resposta = servico_drive.files().list(
@@ -341,7 +343,7 @@ def executar_automacao_sieg_cadastro_a1():
     ]
     if ausentes:
         raise RuntimeError(
-            f"Defina {', '.join(ausentes)} no arquivo Auto_NC/.env."
+            f"Defina {', '.join(ausentes)} no arquivo automacoes/auto_nc/.env."
         )
     id_pasta_raiz = extrair_id_pasta_drive(id_pasta_raiz)
     if not id_pasta_raiz:

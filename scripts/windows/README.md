@@ -95,9 +95,10 @@ Para repetir apos uma automacao ocupada ou falha de rede, use **Re-run jobs**.
    confira os logs e use o backup. Nao existem migracoes automaticas do banco.
 
 Nao modifica `.env`, tokens, certificados, banco, runtime, relatorios nem os XMLs
-dos servicos. Tambem nao atualiza `Auto_NC`, `automacao-sieg` ou `sieg_comum`:
-essas pastas pertencem ao fluxo do colega. Arquivos obsoletos de codigo nao sao
-apagados automaticamente; remocoes futuras precisam de revisao.
+dos servicos. Tambem nao atualiza `automacoes/auto_nc`, `automacoes/sieg` ou
+`automacoes/sieg_comum`: essas pastas pertencem ao fluxo do colega. Arquivos
+obsoletos de codigo nao sao apagados automaticamente; remocoes futuras precisam
+de revisao.
 
 O backend pode retomar agendamentos ativos ao iniciar. Use uma janela fora dos
 dois horarios configurados e evite iniciar uma automacao manual durante o deploy.
