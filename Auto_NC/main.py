@@ -23,18 +23,23 @@ from googleapiclient.http import MediaFileUpload
 
 def carregar_arquivo_env():
     """Carrega variáveis .env sem substituir valores já definidos no ambiente."""
-    arquivo_env = Path(__file__).with_name(".env")
-    if not arquivo_env.exists():
-        return
+    arquivos_env = [
+        Path(__file__).resolve().parents[1] / ".env",
+        Path(__file__).with_name(".env"),
+    ]
 
-    for linha in arquivo_env.read_text(encoding="utf-8").splitlines():
-        linha = linha.strip()
-        if not linha or linha.startswith("#"):
+    for arquivo_env in arquivos_env:
+        if not arquivo_env.exists():
             continue
-        linha = linha.removeprefix("$env:")
-        nome, separador, valor = linha.partition("=")
-        if separador:
-            os.environ.setdefault(nome.strip(), valor.strip().strip('"\''))
+
+        for linha in arquivo_env.read_text(encoding="utf-8").splitlines():
+            linha = linha.strip()
+            if not linha or linha.startswith("#"):
+                continue
+            linha = linha.removeprefix("$env:")
+            nome, separador, valor = linha.partition("=")
+            if separador:
+                os.environ.setdefault(nome.strip(), valor.strip().strip('"\''))
 
 
 carregar_arquivo_env()
@@ -62,6 +67,12 @@ ARQUIVO_RELATORIO_SEM_CERTIFICADO = Path(
 ARQUIVO_EMPRESAS_SIEG = Path(__file__).with_name("empresas_sieg.json")
 SIEG_EMAIL = os.getenv("SIEG_EMAIL", "")
 SIEG_SENHA = os.getenv("SIEG_SENHA", "")
+
+# Execução direcionada: quando informado, processa somente a empresa alvo.
+# Útil para validar uma empresa sem alterar as demais.
+EMPRESA_ALVO = normalizar_texto(os.getenv("AUTO_NC_EMPRESA_ALVO", ""))
+CNPJ_ALVO = re.sub(r"\D", "", os.getenv("AUTO_NC_CNPJ_ALVO", ""))
+MODO_ALVO = bool(EMPRESA_ALVO or CNPJ_ALVO)
 
 # Tempos de espera (em segundos)
 TIME_CURTO = 2.5   # Pausa entre as etapas principais
@@ -112,6 +123,9 @@ def ler_empresas_sieg_da_pagina(page):
 
 def salvar_base_empresas_sieg(empresas, total_esperado):
     """Publica os CNPJs ativos após percorrer todas as páginas do SIEG."""
+    if MODO_ALVO:
+        print("Execução direcionada: base de empresas do SIEG não será alterada.")
+        return False
     identidades = {(str(item.get("cnpj") or ""), item.get("nome") or "") for item in empresas}
     if total_esperado is None or len(empresas) != total_esperado or len(identidades) != total_esperado:
         print("Base SIEG não atualizada: a leitura não cobriu todos os cadastros. Mantida a última base completa.")
@@ -135,6 +149,9 @@ def salvar_base_empresas_sieg(empresas, total_esperado):
 
 def salvar_empresas_sem_certificado(empresas, servico_drive=None):
     """Disponibiliza no painel a lista parcial da execução atual."""
+    if MODO_ALVO:
+        print("Execução direcionada: relatório de empresas sem certificado não será alterado.")
+        return
     unicas = {
         re.sub(r"\D", "", str(item.get("cnpj") or "")) or normalizar_texto(item["nome"]): item
         for item in empresas
@@ -225,11 +242,28 @@ def retornar_para_listagem(page, forcar_recarregamento=False):
         return False
 
 
+XPATH_BOTAO_PRINCIPAL_MODAL = (
+    "xpath=/html/body/div[5]/div/div[2]/section[2]/section/div[1]/button"
+)
+
+
+def clicar_botao_principal_modal(page, texto_alternativo):
+    """Clica no botao principal do modal, usando o texto como fallback."""
+    try:
+        botao = page.locator(XPATH_BOTAO_PRINCIPAL_MODAL).first
+        botao.wait_for(state="visible", timeout=5000)
+        botao.scroll_into_view_if_needed()
+        botao.click()
+        return True
+    except Exception:
+        return clicar_com_rolagem(page, texto_alternativo)
+
+
 def clicar_cadastrar_certificado_a1(page):
     """Localiza o botao por texto e usa o XPath absoluto como fallback."""
     seletores = [
         "button:has-text('Cadastrar certificado A1')",
-        "xpath=/html/body/div[5]/div/div[2]/section[2]/section/div[1]/button",
+        XPATH_BOTAO_PRINCIPAL_MODAL,
     ]
     for seletor in seletores:
         botao = page.locator(seletor).first
@@ -337,35 +371,119 @@ def executar_automacao_sieg_cadastro_a1():
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(TIME_CURTO)
 
-            seletor_quantidade = page.locator(
-                "xpath=//*[@id='app']/main/section/div/section/section[2]/"
-                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[2]/div/div/div"
-            )
-            seletor_quantidade.wait_for(state="visible", timeout=10000)
-            seletor_quantidade.click()
+            nav_paginacao = None
+            for section_index in (2, 3):
+                for div_index in (4, 5, 3, 6, 2, 7, 8):
+                    candidato = page.locator(
+                        "xpath=//*[@id='app']/main/section/div/section/"
+                        "section[%d]/div[1]/section/div[%d]/div[2]/div/nav"
+                        % (section_index, div_index)
+                    )
+                    if candidato.count() > 0:
+                        nav_paginacao = candidato.last
+                        break
+                if nav_paginacao is not None:
+                    break
 
-            opcao_200 = page.locator(
-                "xpath=//*[@id='app']/main/section/div/section/section[2]/"
-                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[2]/"
-                "teleport/ul/li[5]"
-            )
-            opcao_200.wait_for(state="visible", timeout=10000)
-            opcao_200.click()
+            if nav_paginacao is None or nav_paginacao.count() == 0:
+                todos_navs = page.locator("nav")
+                for indice in range(todos_navs.count()):
+                    nav = todos_navs.nth(indice)
+                    try:
+                        texto_nav = nav.inner_text()
+                    except Exception:
+                        continue
+                    if re.search(r"\bde\s+[\d.,]+", texto_nav):
+                        nav_paginacao = nav
+                if nav_paginacao is None and todos_navs.count() > 0:
+                    nav_paginacao = todos_navs.last
+
+            if nav_paginacao is not None and nav_paginacao.count() > 0:
+                try:
+                    nav_paginacao.scroll_into_view_if_needed()
+                except Exception:
+                    pass
+                try:
+                    if nav_paginacao.get_by_text("200", exact=True).count() == 0:
+                        controle = nav_paginacao.get_by_text("50", exact=True)
+                        if controle.count() == 0:
+                            controle = page.get_by_text("50", exact=True)
+                        clicou_controle = False
+                        for indice in range(controle.count() - 1, -1, -1):
+                            candidato = controle.nth(indice)
+                            if candidato.is_visible() and candidato.is_enabled():
+                                candidato.scroll_into_view_if_needed()
+                                candidato.click(force=True)
+                                clicou_controle = True
+                                break
+                        if clicou_controle:
+                            time.sleep(TIME_CURTO)
+                            opcao_200 = None
+                            for xpath_opcao in (
+                                "//*[@id='app']/main/section/div/section/section[2]/"
+                                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/"
+                                "div[2]/teleport/ul/li[5]",
+                            ):
+                                candidato_opcao = page.locator("xpath=" + xpath_opcao)
+                                if candidato_opcao.count() > 0:
+                                    opcao_200 = candidato_opcao.last
+                                    break
+                            if opcao_200 is None or opcao_200.count() == 0:
+                                opcoes = page.locator("li:visible").filter(
+                                    has_text=re.compile(r"^\s*200\s*$")
+                                )
+                                if opcoes.count() > 0:
+                                    opcao_200 = opcoes.last
+                            if opcao_200 is not None and opcao_200.count() > 0:
+                                try:
+                                    opcao_200.click(force=True)
+                                except Exception:
+                                    pass
+                            time.sleep(TIME_CURTO)
+                except Exception:
+                    pass
+
             time.sleep(TIME_CURTO)
             page.wait_for_selector("table")
 
             empresas_sieg.extend(ler_empresas_sieg_da_pagina(page))
             if total_empresas_sieg is None:
-                rodape = page.locator(
-                    "xpath=//*[@id='app']/main/section/div/section/section[2]/"
-                    "div[1]/section/div[4]/div[2]/div/nav"
-                ).inner_text()
-                total_encontrado = re.search(r"\bde\s+([\d.,]+)", rodape, re.IGNORECASE)
+                rodape = None
+                for section_index in (2, 3):
+                    for div_index in (4, 5, 3, 6, 2, 7, 8):
+                        candidato = page.locator(
+                            "xpath=//*[@id='app']/main/section/div/section/"
+                            "section[%d]/div[1]/section/div[%d]/div[2]/div/nav"
+                            % (section_index, div_index)
+                        )
+                        if candidato.count() > 0:
+                            rodape = candidato.last
+                            break
+                    if rodape is not None:
+                        break
+                if rodape is None or rodape.count() == 0:
+                    todos_navs = page.locator("nav")
+                    for indice in range(todos_navs.count()):
+                        nav = todos_navs.nth(indice)
+                        try:
+                            texto_nav = nav.inner_text()
+                        except Exception:
+                            continue
+                        if re.search(r"\bde\s+[\d.,]+", texto_nav):
+                            rodape = nav
+                    if rodape is None and todos_navs.count() > 0:
+                        rodape = todos_navs.last
+                try:
+                    rodape_texto = rodape.inner_text() if rodape is not None else ""
+                except Exception:
+                    rodape_texto = ""
+                total_encontrado = re.search(r"\bde\s+([\d.,]+)", rodape_texto, re.IGNORECASE)
                 if total_encontrado:
                     total_empresas_sieg = int(re.sub(r"\D", "", total_encontrado.group(1)))
             linhas_empresas = page.locator("tbody tr:visible").all()
             print(f"Total de empresas encontradas na lista visível: {len(linhas_empresas)}")
 
+            alvo_processado = False
             for index, linha in enumerate(linhas_empresas):
                 print(f"\n--- Processando linha {index + 1} de {len(linhas_empresas)} (Pág. {pagina_atual}) ---")
 
@@ -392,6 +510,27 @@ def executar_automacao_sieg_cadastro_a1():
                     if not nome_empresa:
                         continue
 
+                    cnpj_encontrado = re.search(
+                        r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}|\d{14}", texto_linha
+                    )
+                    cnpj_linha = (
+                        re.sub(r"\D", "", cnpj_encontrado.group(0))
+                        if cnpj_encontrado else ""
+                    )
+
+                    if MODO_ALVO:
+                        corresponde = (
+                            (not CNPJ_ALVO or cnpj_linha == CNPJ_ALVO)
+                            and (
+                                not EMPRESA_ALVO
+                                or normalizar_texto(nome_empresa) == EMPRESA_ALVO
+                            )
+                        )
+                        if not corresponde:
+                            continue
+                        alvo_processado = True
+                        print(f"🎯 Empresa alvo localizada: {nome_empresa}")
+
                     # Confere "Ativo na Sieg" na td[7] da empresa atual.
                     campo_ativo_sieg = linha.locator("xpath=./td[7]/input")
                     if campo_ativo_sieg.count() != 1 or not campo_ativo_sieg.is_checked():
@@ -399,6 +538,8 @@ def executar_automacao_sieg_cadastro_a1():
                             f"⏩ PULANDO: Empresa '{nome_empresa}' está com "
                             "'Ativo na Sieg' desmarcado ou indisponível."
                         )
+                        if MODO_ALVO:
+                            break
                         continue
 
                     # Verifica apenas a coluna de certificado. Outras colunas
@@ -414,16 +555,14 @@ def executar_automacao_sieg_cadastro_a1():
 
                     if possui_certificado:
                         print(f"⏩ PULANDO: Empresa '{nome_empresa}' já possui certificado cadastrado.")
+                        if MODO_ALVO:
+                            break
                         continue
 
                     print(f"🔍 Empresa sem certificado identificada: {nome_empresa}")
-                    cnpj_encontrado = re.search(
-                        r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}|\d{14}", texto_linha
-                    )
                     empresa_sem_certificado = {
                         "nome": nome_empresa,
-                        "cnpj": re.sub(r"\D", "", cnpj_encontrado.group(0))
-                        if cnpj_encontrado else "",
+                        "cnpj": cnpj_linha,
                         "motivo": "Empresa sem certificado cadastrado no SIEG",
                     }
                     empresas_sem_certificado.append(empresa_sem_certificado)
@@ -438,6 +577,8 @@ def executar_automacao_sieg_cadastro_a1():
 
                     if not caminho_pfx or not senha_certificado:
                         print(f"⚠️ PULANDO: A empresa '{nome_empresa}' NÃO possui pasta/arquivos no Drive.")
+                        if MODO_ALVO:
+                            break
                         continue
 
                     print(f"  └─ Certificado local: {caminho_pfx}")
@@ -448,11 +589,11 @@ def executar_automacao_sieg_cadastro_a1():
                     time.sleep(TIME_CURTO)
 
                     # PASSO 8 e 9: Preencher UF 'CE' se estiver vazia
-                    preencher_uf_se_necessario(page)
+                    preencher_uf_se_necessario(page, "CE")
                     time.sleep(TIME_CURTO)
 
                     # PASSO 10: Salvar e continuar
-                    clicar_com_rolagem(page, "Salvar e continuar")
+                    clicar_botao_principal_modal(page, "Salvar e continuar")
                     time.sleep(TIME_CURTO)
 
                     # REGRA 3: Clicar no botão "Cadastrar certificado A1"
@@ -527,6 +668,9 @@ def executar_automacao_sieg_cadastro_a1():
                         empresas_sem_certificado, servico_drive
                     )
 
+                    if MODO_ALVO:
+                        break
+
                 except Exception as err:
                     print(f"❌ OCORREU UM ERRO na empresa '{nome_empresa}': {err}")
                     print("Cancelando edição e retornando para continuar...")
@@ -544,6 +688,8 @@ def executar_automacao_sieg_cadastro_a1():
                         browser.close()
                         return
                     time.sleep(TIME_CURTO)
+                    if MODO_ALVO and alvo_processado:
+                        break
                     continue
 
                 # Retorna para a listagem para processar o próximo item
@@ -553,6 +699,10 @@ def executar_automacao_sieg_cadastro_a1():
                     return
                 time.sleep(TIME_CURTO)
 
+            if MODO_ALVO and alvo_processado:
+                print("Execução direcionada concluída: encerrando após a empresa alvo.")
+                break
+
             # ---------------------------------------------------------
             # REGRA 4: TROCA DE PÁGINA (SETINHA DA PAGINAÇÃO)
             # ---------------------------------------------------------
@@ -560,11 +710,23 @@ def executar_automacao_sieg_cadastro_a1():
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             time.sleep(TIME_CURTO)
 
-            # A seta é o último botão; a quantidade de páginas numéricas varia.
-            btn_proxima_pagina = page.locator(
-                "xpath=//*[@id='app']/main/section/div/section/section[2]/"
-                "div[1]/section/div[4]/div[2]/div/nav/div/div/div[2]/div[1]/button[last()]"
-            )
+            # A seta é o último botão; tenta localizar a navegação de forma resiliente.
+            btn_proxima_pagina = None
+            for section_index in (2, 3):
+                for div_index in (4, 5, 3, 6, 2, 7, 8):
+                    candidato = page.locator(
+                        "xpath=//*[@id='app']/main/section/div/section/"
+                        "section[%d]/div[1]/section/div[%d]/div[2]/div/nav/"
+                        "div/div/div[2]/div[1]/button[last()]"
+                        % (section_index, div_index)
+                    )
+                    if candidato.count() > 0:
+                        btn_proxima_pagina = candidato.last
+                        break
+                if btn_proxima_pagina is not None:
+                    break
+            if btn_proxima_pagina is None or btn_proxima_pagina.count() == 0:
+                btn_proxima_pagina = page.locator("nav button").last
 
             if btn_proxima_pagina.is_visible() and btn_proxima_pagina.is_enabled():
                 print("➡️ Clicando na seta para ir para a PRÓXIMA PÁGINA...")
@@ -577,7 +739,13 @@ def executar_automacao_sieg_cadastro_a1():
 
         salvar_base_empresas_sieg(empresas_sieg, total_empresas_sieg)
         salvar_empresas_sem_certificado(empresas_sem_certificado, servico_drive)
-        print("\n🎉 Processo finalizado com sucesso em todas as páginas!")
+        if MODO_ALVO:
+            if alvo_processado:
+                print("\n🎯 Execução direcionada finalizada para a empresa alvo.")
+            else:
+                print("\n⚠️ Empresa alvo não encontrada na listagem do SIEG.")
+        else:
+            print("\n🎉 Processo finalizado com sucesso em todas as páginas!")
         browser.close()
 
 

@@ -26,7 +26,8 @@ class BaseEmpresasTest(unittest.TestCase):
         from sieg_comum.identidade import normalizar_texto
         self.namespace = {"normalizar_texto": normalizar_texto, "datetime": datetime, "json": json, "os": os, "re": re,
                           "unicodedata": unicodedata, "ARQUIVO_EMPRESAS_SIEG": self.base,
-                          "ARQUIVO_RELATORIO_SEM_CERTIFICADO": self.sem_certificado}
+                          "ARQUIVO_RELATORIO_SEM_CERTIFICADO": self.sem_certificado,
+                          "MODO_ALVO": False}
         exec(compile(arvore, str(caminho), "exec"), self.namespace)
 
     def test_coleta_documento_da_empresa_e_estado_do_input(self):

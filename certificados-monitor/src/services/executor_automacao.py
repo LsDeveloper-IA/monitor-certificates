@@ -533,10 +533,12 @@ executor_sieg_automacao = ExecutorAutomacao(
         "certificados_vencidos": Path(__file__).resolve().parents[3]
         / "automacao-sieg",
         "auto_nc": Path(__file__).resolve().parents[3] / "Auto_NC",
+        "conthabil": Path(__file__).resolve().parents[3] / "automacao-conthabil",
     },
     nomes_motores={
         "certificados_vencidos": "Certificados vencidos (SIEG)",
         "auto_nc": "Empresas sem certificado (Auto_NC)",
+        "conthabil": "Certificados vencidos (Conthabil)",
     },
-    ordem_motores=("certificados_vencidos", "auto_nc"),
+    ordem_motores=("certificados_vencidos", "auto_nc", "conthabil"),
 )

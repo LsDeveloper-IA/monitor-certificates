@@ -257,17 +257,22 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
             nomes_motores={
                 "certificados_vencidos": "Certificados vencidos (SIEG)",
                 "auto_nc": "Empresas sem certificado (Auto_NC)",
+                "conthabil": "Certificados vencidos (Conthabil)",
             },
         )
         executor._resultados_motores = {
             "certificados_vencidos": 0,
             "auto_nc": 1,
+            "conthabil": 0,
         }
         executor._registrar_motor("auto_nc", "Falha no cadastro")
 
         automacoes = executor.status()["automacoes"]
 
-        self.assertEqual(set(automacoes), {"certificados_vencidos", "auto_nc"})
+        self.assertEqual(
+            set(automacoes),
+            {"certificados_vencidos", "auto_nc", "conthabil"},
+        )
         self.assertEqual(
             automacoes["certificados_vencidos"]["nome"],
             "Certificados vencidos (SIEG)",
@@ -280,16 +285,22 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertEqual(automacoes["auto_nc"]["estado"], "falhou")
         self.assertEqual(automacoes["auto_nc"]["codigo_saida"], 1)
         self.assertEqual(automacoes["auto_nc"]["logs"], ["Falha no cadastro"])
+        self.assertEqual(
+            automacoes["conthabil"]["nome"], "Certificados vencidos (Conthabil)"
+        )
+        self.assertEqual(automacoes["conthabil"]["estado"], "concluida")
 
-    def test_configura_os_dois_motores_de_automacao(self):
+    def test_configura_os_tres_motores_de_automacao(self):
         pasta_repositorio = Path(__file__).resolve().parents[2]
         pasta_certificados = pasta_repositorio / "certificados-monitor" / "automation_engine"
         pasta_antiga = pasta_repositorio / "automacao-sieg"
         pasta_auto_nc = pasta_repositorio / "Auto_NC"
+        pasta_conthabil = pasta_repositorio / "automacao-conthabil"
 
         self.assertTrue((pasta_certificados / "main.py").exists())
         self.assertTrue((pasta_auto_nc / "main.py").exists())
         self.assertTrue((pasta_antiga / "main.py").exists())
+        self.assertTrue((pasta_conthabil / "main.py").exists())
         self.assertEqual(ExecutorAutomacao().pasta_motor, pasta_certificados)
         self.assertEqual(
             set(ExecutorAutomacao().pastas_motores),
@@ -298,22 +309,25 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
         self.assertEqual(executor_sieg_automacao.pasta_motor, pasta_antiga)
         self.assertEqual(
             set(executor_sieg_automacao.pastas_motores),
-            {"certificados_vencidos", "auto_nc"},
+            {"certificados_vencidos", "auto_nc", "conthabil"},
         )
         self.assertEqual(
             executor_sieg_automacao._ordem_motores,
-            ["certificados_vencidos", "auto_nc"],
+            ["certificados_vencidos", "auto_nc", "conthabil"],
         )
 
-    def test_executa_sieg_e_depois_auto_nc_sem_sobrepor_processos(self):
+    def test_executa_sieg_auto_nc_e_conthabil_sem_sobrepor_processos(self):
         with tempfile.TemporaryDirectory() as pasta:
             raiz = Path(pasta)
             pasta_sieg = raiz / "automacao-sieg"
             pasta_auto_nc = raiz / "Auto_NC"
+            pasta_conthabil = raiz / "automacao-conthabil"
             pasta_sieg.mkdir()
             pasta_auto_nc.mkdir()
+            pasta_conthabil.mkdir()
             (pasta_sieg / "main.py").touch()
             (pasta_auto_nc / "main.py").touch()
+            (pasta_conthabil / "main.py").touch()
             eventos = []
             processos_ativos = []
 
@@ -341,8 +355,9 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
                 pastas_motores={
                     "certificados_vencidos": pasta_sieg,
                     "auto_nc": pasta_auto_nc,
+                    "conthabil": pasta_conthabil,
                 },
-                ordem_motores=("certificados_vencidos", "auto_nc"),
+                ordem_motores=("certificados_vencidos", "auto_nc", "conthabil"),
             )
             executor._executando = True
             executor._execucao_id = "sequencial"
@@ -361,6 +376,8 @@ class ExecutorAutomacaoTestCase(unittest.TestCase):
                 "fim:automacao-sieg",
                 "inicio:Auto_NC",
                 "fim:Auto_NC",
+                "inicio:automacao-conthabil",
+                "fim:automacao-conthabil",
             ],
         )
 

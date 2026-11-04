@@ -2,7 +2,8 @@
 
 Aplicação para acompanhar certificados digitais, executar rotinas no SIEG e
 consolidar os resultados em um painel web. O repositório reúne o frontend, a
-API, duas automações Playwright e o código compartilhado entre elas.
+API, duas automações Playwright, a integração com o Conthabil e o código
+compartilhado entre elas.
 
 ## Componentes
 
@@ -12,21 +13,23 @@ API, duas automações Playwright e o código compartilhado entre elas.
 | `certificados-monitor/` | API Flask, banco local, agendamentos, integrações e executor dos motores. |
 | `automacao-sieg/` | Atualiza no SIEG os certificados vencidos encontrados no Google Drive. |
 | `Auto_NC/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
-| `sieg_comum/` | Login, navegação e cliente do Drive usados pelas duas automações. |
+| `automacao-conthabil/` | Renova certificados no portal Conthabil usando os arquivos do Google Drive. |
+| `sieg_comum/` | Login, navegação e cliente do Drive usados pelas automações do SIEG. |
 | `scripts/` | Inicialização do ambiente local. |
 
-## Fluxo das automações SIEG
+## Fluxo das automações
 
-Ao iniciar a automação SIEG pelo painel, o backend executa os motores em uma
-única fila:
+Ao iniciar a automação pelo painel, o backend executa os motores em uma única
+fila:
 
-1. `automacao-sieg`: procura e atualiza certificados vencidos.
+1. `automacao-sieg`: procura e atualiza certificados vencidos no SIEG.
 2. `Auto_NC`: lê a lista após as atualizações e identifica quem continua sem
-   certificado.
+   certificado no SIEG.
+3. `automacao-conthabil`: renova os certificados vencidos no portal Conthabil.
 
-A segunda etapa só começa quando a primeira termina com sucesso. Se houver
-falha ou interrupção, ela não é iniciada. Isso impede duas sessões simultâneas
-na mesma conta do SIEG.
+Cada etapa só começa quando a anterior termina com sucesso. Se houver falha ou
+interrupção, as próximas não são iniciadas. Isso impede duas sessões
+simultâneas na mesma conta do SIEG.
 
 ## Preparação local no Windows
 
@@ -50,6 +53,7 @@ Copie e preencha os exemplos de configuração de cada componente:
 - `certificados-frontend/.env.example` → `certificados-frontend/.env.local`
 - `automacao-sieg/.env.example` → `automacao-sieg/.env`
 - `Auto_NC/.env.example` → `Auto_NC/.env`
+- `automacao-conthabil/.env.example` → `automacao-conthabil/.env`
 
 Mantenha `.env`, `credentials.json`, `token.json`, bancos locais e relatórios
 fora do Git.

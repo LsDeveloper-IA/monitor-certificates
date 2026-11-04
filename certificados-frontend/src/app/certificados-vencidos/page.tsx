@@ -141,7 +141,7 @@ export default function CertificadosVencidos() {
 
       setMensagemAutomacao({
         tipo: 'success',
-        texto: 'As duas automações foram iniciadas em segundo plano.',
+        texto: 'As três automações foram iniciadas em segundo plano.',
       });
       window.dispatchEvent(new Event('certificados-monitor:automacao-alterada'));
       await carregarStatusAutomacao();
@@ -164,7 +164,7 @@ export default function CertificadosVencidos() {
       });
       const conteudo = await resposta.json().catch(() => ({}));
       if (!resposta.ok) throw new Error(conteudo?.erro || 'Não foi possível parar as automações.');
-      setMensagemAutomacao({ tipo: 'success', texto: 'As duas automações foram interrompidas.' });
+      setMensagemAutomacao({ tipo: 'success', texto: 'As três automações foram interrompidas.' });
       await carregarStatusAutomacao();
     } catch (erro) {
       setMensagemAutomacao({ tipo: 'error', texto: erro instanceof Error ? erro.message : 'Falha ao parar as automações.' });
@@ -279,7 +279,7 @@ export default function CertificadosVencidos() {
           <RefreshCw className="w-4 h-4 animate-spin" />
           <p className="font-medium">Automações em execução</p>
         </div>
-        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2 xl:grid-cols-3">
           {Object.entries(statusAutomacao.automacoes || {}).map(([id, automacao]) => (
             <div key={id} className="min-w-0 rounded-xl border border-blue-200 bg-white p-4 shadow-sm">
               <div className="mb-3 flex items-center justify-between gap-3">

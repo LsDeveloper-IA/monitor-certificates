@@ -15,6 +15,8 @@ pelo painel.
 - Salva `empresas_sieg.json` e `empresas_sem_certificado.json` localmente e
   envia o relatório para a pasta configurada.
 - O navegador roda em modo invisível (`headless`).
+- Com `AUTO_NC_EMPRESA_ALVO` ou `AUTO_NC_CNPJ_ALVO`, processa somente a empresa
+  indicada e encerra, sem alterar os relatórios existentes.
 
 ## Configuração
 
@@ -36,6 +38,11 @@ Opções adicionais:
 
 Os dois IDs de pasta são obrigatórios. A primeira autorização do Google pode
 abrir o fluxo OAuth; depois, a credencial é persistida em `token.json`.
+
+Se `GOOGLE_DRIVE_FOLDER_ID` não for informado no `Auto_NC/.env`, o valor é
+herdado do `.env` da raiz do projeto. A pasta precisa ser a que contém uma
+subpasta por empresa (com o `.pfx` e o arquivo de senha), não a pasta de
+relatórios.
 
 ## Instalação e execução isolada
 

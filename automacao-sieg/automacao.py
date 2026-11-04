@@ -93,9 +93,27 @@ def clicar_salvar_e_continuar(page, etapa):
 
 def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
     """Abre com segurança a tela de upload para uma nova tentativa."""
+    retorno_voltar = voltar_para_tabela_empresas(page)
+    if not retorno_voltar:
+        raise RuntimeError("A edição anterior não fechou; não foi possível retornar à tabela")
+    if retorno_voltar is not True:
+        page = retorno_voltar
     linha = localizar_linha_por_cnpj(page, cnpj)
     if linha is None:
-        raise RuntimeError("Linha não encontrada na tabela")
+        # Uma atualização da SPA pode restaurar a paginação padrão ou deixar
+        # a listagem desatualizada. Recuperar uma vez antes de declarar ausência.
+        print(f"  Recarregando a listagem para localizar o CNPJ {cnpj}...")
+        page.reload(wait_until="domcontentloaded")
+        aguardar_interface_pronta(page)
+        aplicar_filtro_vencidos(page)
+        if not alterar_paginacao_para_200(page):
+            raise RuntimeError("Não foi possível restaurar a paginação da tabela")
+        linha = localizar_linha_por_cnpj(page, cnpj)
+    if linha is None:
+        raise RuntimeError(
+            f"CNPJ {cnpj} ausente na listagem de vencidos após recarregar "
+            "e restaurar a paginação; confira se sua situação mudou no SIEG"
+        )
 
     if not confirmar_linha_empresa(linha, cnpj, nome_empresa):
         raise RuntimeError(
@@ -108,7 +126,69 @@ def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
     if not preencher_uf(page, SIEG_UF_PADRAO):
         raise RuntimeError(f"Não foi possível selecionar a UF {SIEG_UF_PADRAO}")
 
-    clicar_salvar_e_continuar(page, "cadastro")
+    popup = None
+    try:
+        with page.expect_popup(timeout=10000) as info_popup:
+            clicar_salvar_e_continuar(page, "cadastro")
+        popup = info_popup.value
+    except Exception:
+        popup = None
+
+    if popup is not None:
+        try:
+            popup.wait_for_load_state("domcontentloaded", timeout=15000)
+        except Exception:
+            pass
+        page = popup
+
+    link_certificado = None
+    colecoes_link = (
+        lambda: page.get_by_role("link", name=re.compile(r"Cadastrar certificado existente", re.IGNORECASE)),
+        lambda: page.get_by_text(re.compile(r"Cadastrar certificado existente", re.IGNORECASE)),
+        lambda: page.get_by_role("button", name=re.compile(r"Cadastrar certificado existente", re.IGNORECASE)),
+    )
+    for obter_colecao in colecoes_link:
+        try:
+            colecao = obter_colecao()
+            total = colecao.count()
+        except Exception:
+            total = 0
+        if not isinstance(total, int) or total <= 0:
+            continue
+        for indice in range(total - 1, -1, -1):
+            try:
+                if colecao.nth(indice).is_visible():
+                    link_certificado = colecao.nth(indice)
+                    break
+            except Exception:
+                pass
+        if link_certificado is not None:
+            break
+
+    if link_certificado is not None:
+        try:
+            with page.expect_popup(timeout=5000) as info_popup2:
+                link_certificado.click()
+            pagina_popup = info_popup2.value
+            try:
+                pagina_popup.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+            page = pagina_popup
+        except Exception:
+            try:
+                link_certificado.click()
+            except Exception:
+                pass
+            try:
+                page.wait_for_load_state("domcontentloaded", timeout=15000)
+            except Exception:
+                pass
+
+    try:
+        aguardar_interface_pronta(page, timeout=15000)
+    except Exception:
+        pass
 
     garantir_input_ativo(
         page, "atualizacao do certificado",
@@ -121,9 +201,10 @@ def preparar_tela_upload_certificado(page, cnpj, nome_empresa):
         )
 
 
+    return page
 def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
     """Envia um candidato; apenas uma rejeição explícita permite tentar outro."""
-    preparar_tela_upload_certificado(page, cnpj, nome_empresa)
+    page = preparar_tela_upload_certificado(page, cnpj, nome_empresa)
     campo_file = campo_upload_modal(page, "file")
     campo_file.wait_for(state="attached", timeout=15000)
     campo_file.set_input_files({
@@ -138,12 +219,16 @@ def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
     campo_pass.dispatch_event("input")
     senha_aceita, mensagem = aguardar_validacao_senha_certificado(page)
     if senha_aceita is False:
-        raise CertificadoRejeitadoError(mensagem)
+        erro_rejeicao = CertificadoRejeitadoError(mensagem)
+        erro_rejeicao.page = page
+        raise erro_rejeicao
     if senha_aceita is not True:
-        raise RuntimeError(
+        erro_inconclusivo = RuntimeError(
             "Upload enviado, mas a validação do SIEG ficou inconclusiva: "
             f"{mensagem}. Nenhum outro candidato será enviado nesta tentativa."
         )
+        erro_inconclusivo.page = page
+        raise erro_inconclusivo
 
     print(f"  ✅ Senha confirmada pelo SIEG: {mensagem}")
     try:
@@ -161,11 +246,15 @@ def enviar_certificado_candidato(page, candidato, cnpj, nome_empresa):
     except CertificadoRejeitadoError:
         raise
     except Exception as erro:
-        raise RuntimeError(
+        erro_navegacao = RuntimeError(
             "Falha de navegação após enviar o certificado e validar a senha: "
             f"{erro}. A atualização pode já ter sido salva no SIEG; "
             "nenhum outro candidato será enviado nesta tentativa."
-        ) from erro
+        )
+        erro_navegacao.page = page
+        raise erro_navegacao from erro
+
+    return page
 
 
 def executar_automacao_sieg():
@@ -187,7 +276,7 @@ def executar_automacao_sieg():
 
     with sync_playwright() as p:
         print(f"⏱️ Atraso adicional do Playwright: {SIEG_SLOW_MO_MS} ms por ação")
-        browser = p.chromium.launch(headless=True, slow_mo=SIEG_SLOW_MO_MS)
+        browser = p.chromium.launch(headless=False, slow_mo=SIEG_SLOW_MO_MS)
         page = browser.new_page()
         page.set_default_navigation_timeout(100000)
 
@@ -327,30 +416,34 @@ def executar_automacao_sieg():
                 for candidato in candidatos:
                     total_tentativas += 1
                     print(
-                        f"  🧪 Tentativa {total_tentativas}: "
+                        f"  Tentativa {total_tentativas}: "
                         f"{candidato['pasta_nome']} / "
                         f"{candidato['arquivo_nome']} "
                         f"({candidato['similaridade']:.0%})"
                     )
                     try:
-                        enviar_certificado_candidato(
+                        page = enviar_certificado_candidato(
                             page, candidato, cnpj, nome_empresa
                         )
                     except CertificadoRejeitadoError as rejeicao:
+                        page = getattr(rejeicao, "page", page)
                         motivo_rejeicao = f"{candidato['pasta_nome']}: {rejeicao}"
                         rejeicoes.append(motivo_rejeicao)
                         print(
-                            "  ⚠️ Candidato rejeitado pelo SIEG; "
-                            "voltando para testar o próximo."
+                            "  Candidato rejeitado pelo SIEG; "
+                            "voltando para testar o proximo."
                         )
-                        if not voltar_para_tabela_empresas(page):
+                        retorno_voltar = voltar_para_tabela_empresas(page)
+                        if not retorno_voltar:
                             raise RuntimeError(
-                                "O certificado foi rejeitado, mas não foi possível "
-                                "voltar com segurança à tabela"
+                                "O certificado foi rejeitado, mas nao foi possivel "
+                                "voltar com seguranca a tabela"
                             )
+                        if retorno_voltar is not True:
+                            page = retorno_voltar
                     else:
                         certificado_aceito = candidato
-                        print("  ✅ Certificado aceito e próxima etapa aberta.")
+                        print("  Certificado aceito e proxima etapa aberta.")
                         break
 
                 if certificado_aceito is None:
@@ -406,6 +499,7 @@ def executar_automacao_sieg():
                 sucessos += 1
 
             except Exception as err:
+                page = getattr(err, "page", page)
                 print(f"❌ ERRO: {err}")
                 adicionar_falha(falhas_detalhes, page, cnpj, nome_empresa, err)
                 falhas += 1

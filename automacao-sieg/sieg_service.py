@@ -1,7 +1,8 @@
 import _bootstrap
-from sieg_comum.modais import botao_atualizar_certificado
+from sieg_comum.modais import botao_atualizar_certificado, localizar_modais
 from sieg_comum.navegacao import (aguardar_interface_pronta, clicar_com_rolagem, abrir_edicao_empresa, preencher_uf)
 from sieg_comum.sessao import realizar_login_sieg
+from playwright.sync_api import Error as PlaywrightError
 
 import re
 import time
@@ -124,134 +125,165 @@ def aplicar_filtro_vencidos(page):
     page.locator("table:visible").first.wait_for(state="visible", timeout=15000)
 
 
+def _clicar_primeiro_visivel(*colecoes):
+    """Clica no último candidato visível e habilitado das coleções recebidas."""
+    for colecao in colecoes:
+        for indice in range(colecao.count() - 1, -1, -1):
+            candidato = colecao.nth(indice)
+            if candidato.is_visible() and candidato.is_enabled():
+                candidato.scroll_into_view_if_needed()
+                candidato.click(force=True)
+                return True
+    return False
+
+
 def alterar_paginacao_para_200(page):
-    """Altera o número de itens por página para 200."""
-    print("\n📄 Alterando a exibição da tabela para 200 itens por página...")
+    """Altera o numero de itens por pagina e confirma o valor selecionado."""
+    print("\nAlterando a exibicao da tabela para 200 itens por pagina...")
+    page.evaluate(
+        """
+        () => {
+            window.scrollTo(0, document.body.scrollHeight);
+            for (const elemento of document.querySelectorAll('*')) {
+                if (elemento.scrollHeight > elemento.clientHeight) {
+                    elemento.scrollTop = elemento.scrollHeight;
+                }
+            }
+        }
+        """
+    )
+    page.keyboard.press("End")
+    page.wait_for_timeout(500)
+
+    nav_paginacao = None
+    xpaths_nav = []
+    for section_index in (2, 3):
+        for div_index in (4, 5, 3, 6, 2, 7, 8):
+            xpaths_nav.append(
+                "//*[@id='app']/main/section/div/section/"
+                "section[%d]/div[1]/section/"
+                "div[%d]/div[2]/div/nav" % (section_index, div_index)
+            )
+
+    for xpath in xpaths_nav:
+        try:
+            candidato = page.locator("xpath=" + xpath)
+            if candidato.count() > 0:
+                nav_paginacao = candidato.last
+                break
+        except Exception:
+            continue
+
+    if nav_paginacao is None or nav_paginacao.count() == 0:
+        try:
+            todos_navs = page.locator("nav")
+            for indice in range(todos_navs.count()):
+                nav = todos_navs.nth(indice)
+                try:
+                    texto = nav.inner_text()
+                except Exception:
+                    continue
+                if re.search(r"\bde\s+[\d.,]+", texto):
+                    nav_paginacao = nav
+            if nav_paginacao is None and todos_navs.count() > 0:
+                nav_paginacao = todos_navs.last
+        except Exception:
+            pass
+
+    if nav_paginacao is None or nav_paginacao.count() == 0:
+        try:
+            controle_texto = page.get_by_text("50", exact=True)
+            if controle_texto.count() > 0:
+                nav_paginacao = controle_texto.first.locator(
+                    "xpath=ancestor::nav[1]"
+                )
+        except Exception:
+            pass
+
+    if nav_paginacao is None or nav_paginacao.count() == 0:
+        print("  Navegacao de paginacao nao encontrada.")
+        return False
+
     try:
-            page.evaluate(
-                """
-                () => {
-                    window.scrollTo(0, document.body.scrollHeight);
-                    for (const elemento of document.querySelectorAll('*')) {
-                        if (elemento.scrollHeight > elemento.clientHeight) {
-                            elemento.scrollTop = elemento.scrollHeight;
-                        }
+        nav_paginacao.evaluate(
+            """
+            elemento => {
+                let ancestral = elemento.parentElement;
+                while (ancestral) {
+                    if (ancestral.scrollHeight > ancestral.clientHeight) {
+                        ancestral.scrollTop = ancestral.scrollHeight;
                     }
+                    ancestral = ancestral.parentElement;
                 }
-                """
-            )
-            page.keyboard.press("End")
-            page.wait_for_timeout(500)
+                elemento.scrollIntoView({block: 'center', inline: 'nearest'});
+            }
+            """
+        )
+    except Exception:
+        pass
+    try:
+        nav_paginacao.scroll_into_view_if_needed()
+    except Exception:
+        pass
+    page.wait_for_timeout(700)
 
-            xpath_nav_paginacao = (
-                "//*[@id='app']/main/section/div/section/section[2]/div[1]/"
-                "section/div[4]/div[2]/div/nav"
-            )
-            nav_paginacao = page.locator(f"xpath={xpath_nav_paginacao}")
-            nav_paginacao.wait_for(state="attached", timeout=10000)
-
-            # A tabela pode estar dentro de um contêiner com rolagem própria.
-            # Leva todos os ancestrais roláveis ao fim e posiciona o nav na tela.
-            nav_paginacao.evaluate(
-                """
-                elemento => {
-                    let ancestral = elemento.parentElement;
-                    while (ancestral) {
-                        if (ancestral.scrollHeight > ancestral.clientHeight) {
-                            ancestral.scrollTop = ancestral.scrollHeight;
-                        }
-                        ancestral = ancestral.parentElement;
-                    }
-                    elemento.scrollIntoView({block: 'center', inline: 'nearest'});
-                }
-                """
-            )
-            nav_paginacao.scroll_into_view_if_needed()
-            page.wait_for_timeout(700)
-
-            print("  ├─ Abrindo o seletor de paginação em '50'...")
-            xpath_controle_paginacao = (
-                "//*[@id='app']/main/section/div/section/section[2]/div[1]/"
-                "section/div[4]/div[2]/div/nav/div/div/div[2]/div[2]"
-            )
-            btn_paginacao = page.locator(f"xpath={xpath_controle_paginacao}")
-            if btn_paginacao.count() == 0:
-                btn_paginacao = page.get_by_text("50", exact=True)
-            clicou_paginacao = False
-            for indice in range(btn_paginacao.count() - 1, -1, -1):
-                candidato = btn_paginacao.nth(indice)
-                if candidato.is_visible() and candidato.is_enabled():
-                    candidato.scroll_into_view_if_needed()
-                    candidato.click(force=True)
-                    clicou_paginacao = True
-                    break
-            if not clicou_paginacao:
-                raise RuntimeError("Controle da paginação '50' não encontrado")
-
-            # Assim como o campo Situação, a lista é criada em um portal
-            # somente depois do clique no valor atual.
-            page.wait_for_timeout(500)
-            print("  ├─ Selecionando a opção '200'...")
-            xpath_opcao_200 = (
-                f"{xpath_controle_paginacao}/teleport/ul/li[5]"
-            )
-            opcoes_200 = page.locator(f"xpath={xpath_opcao_200}")
-            if opcoes_200.count() == 0:
-                opcoes_200 = page.locator(
-                    "[role='option']:visible, [role='menuitem']:visible, "
-                    "li:visible, button:visible, div:visible"
-                ).filter(has_text=re.compile(r"^\s*200\s*$"))
-            clicou_200 = False
-            for indice in range(opcoes_200.count() - 1, -1, -1):
-                candidato = opcoes_200.nth(indice)
-                if candidato.is_visible() and candidato.is_enabled():
-                    candidato.click(force=True)
-                    clicou_200 = True
-                    break
-
-            if not clicou_200:
-                clicou_200 = page.evaluate(
-                    """
-                    () => {
-                        const visivel = elemento => {
-                            const estilo = getComputedStyle(elemento);
-                            const caixa = elemento.getBoundingClientRect();
-                            return estilo.display !== 'none'
-                                && estilo.visibility !== 'hidden'
-                                && caixa.width > 0 && caixa.height > 0;
-                        };
-                        const elementos = Array.from(document.querySelectorAll(
-                            '[role="option"], [role="menuitem"], li, button, div, span'
-                        ));
-                        const texto = elementos.find(elemento =>
-                            visivel(elemento)
-                            && (elemento.innerText || '').trim() === '200'
-                        );
-                        if (!texto) return false;
-                        const clicavel = texto.closest(
-                            '[role="option"], [role="menuitem"], li, button'
-                        ) || texto;
-                        clicavel.click();
-                        return true;
-                    }
-                    """
-                )
-
-            if not clicou_200:
-                raise RuntimeError(
-                    "Opção '200' não encontrada após abrir o seletor '50'"
-                )
-
-            print("  └─ ✅ Paginação alterada para 200 itens com sucesso!")
-            aguardar_interface_pronta(page)
-            page.locator("table:visible").first.wait_for(state="visible", timeout=15000)
-            page.evaluate("window.scrollTo(0, 0)")
+    try:
+        if nav_paginacao.get_by_text("200", exact=True).count() > 0:
+            print("  A paginacao ja esta em 200 itens por pagina.")
             return True
-    except Exception as e:
-            print(f"  └─ ⚠️ Erro ao alterar a paginação para 200: {e}")
-            return False
+    except Exception:
+        pass
 
+    print("  Abrindo o seletor de paginacao...")
+    controle_paginacao = nav_paginacao.get_by_text("50", exact=True)
+    if not _clicar_primeiro_visivel(
+        controle_paginacao,
+        page.get_by_text("50", exact=True),
+    ):
+        print("  Controle da paginacao '50' nao encontrado ou invisivel.")
+        return False
 
+    page.wait_for_timeout(300)
+    print("  Selecionando a opcao '200'...")
+    nome_200 = re.compile(r"^\s*200\s*$")
+    if not _clicar_primeiro_visivel(
+        page.get_by_role("option", name="200", exact=True),
+        page.get_by_role("menuitem", name="200", exact=True),
+        page.locator("li:visible").filter(has_text=nome_200),
+        page.get_by_text("200", exact=True),
+    ):
+        print("  Opcao '200' nao encontrada no seletor de paginacao.")
+        return False
+
+    try:
+        page.wait_for_function(
+            """
+            () => {
+                const navs = Array.from(document.querySelectorAll('nav'));
+                const nav = navs.find(elemento => /\\bde\\s+[\\d.,]+/.test(elemento.innerText || ''))
+                    || navs[navs.length - 1];
+                if (!nav) return false;
+                return Array.from(nav.querySelectorAll('*')).some(
+                    elemento => (elemento.innerText || '').trim() === '200'
+                );
+            }
+            """,
+            timeout=10000,
+        )
+        aguardar_interface_pronta(page)
+        try:
+            page.locator("table:visible").first.wait_for(
+                state="visible", timeout=15000
+            )
+        except Exception:
+            pass
+    except PlaywrightError as erro:
+        print("  A paginacao nao confirmou 200 itens: %s" % erro)
+        return False
+
+    print("  Paginacao alterada para 200 itens por pagina!")
+    page.evaluate("window.scrollTo(0, 0)")
+    return True
 def extrair_dados_linha(texto_linha):
     """Extrai CNPJ e nome da empresa a partir do texto de uma linha da tabela."""
     partes = [p.strip() for p in texto_linha.split("\n") if p.strip()]
@@ -307,21 +339,39 @@ def forcar_fechamento_modais(page):
 
 
 def voltar_para_tabela_empresas(page, timeout=15000):
-    """Fecha os modais por controles reais e confirma o retorno à tabela."""
+    """Fecha os modais por controles reais e confirma o retorno a tabela."""
+    # Se a pagina atual for um popup, tenta usar a aba que a abriu.
+    try:
+        if page.is_closed():
+            if page.opener() is not None and not page.opener().is_closed():
+                page = page.opener()
+    except Exception:
+        pass
+
+    try:
+        page.locator("table:visible").first.wait_for(state="visible", timeout=1000)
+    except Exception:
+        try:
+            if page.opener() is not None and not page.opener().is_closed():
+                anterior = page
+                page = page.opener()
+                try:
+                    anterior.close()
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
     limite = time.monotonic() + timeout / 1000
-    seletor_modal = (
-        "[role='dialog']:visible, div[class*='modal']:visible, "
-        "div[class*='drawer']:visible, div.su-modal:visible"
-    )
 
     while time.monotonic() < limite:
-        modais = page.locator(seletor_modal)
+        modais = localizar_modais(page)
         if modais.count() == 0:
             try:
                 page.locator("table:visible").first.wait_for(
                     state="visible", timeout=1000
                 )
-                return True
+                return page
             except Exception:
                 page.wait_for_timeout(250)
                 continue

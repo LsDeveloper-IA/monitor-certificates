@@ -175,6 +175,49 @@ class OpcaoDepoisUploadTest(unittest.TestCase):
 
 
 
+class PreparacaoTelaTest(unittest.TestCase):
+    def setUp(self):
+        self.page = Mock()
+        self.linha = Mock()
+        self.voltar = Mock(return_value=True)
+        self.localizar = Mock(return_value=self.linha)
+        self.abrir = Mock(return_value=True)
+        self.paginar = Mock(return_value=True)
+        self.preparar = carregar_funcoes(
+            "preparar_tela_upload_certificado",
+            voltar_para_tabela_empresas=self.voltar,
+            localizar_linha_por_cnpj=self.localizar,
+            confirmar_linha_empresa=Mock(return_value=True),
+            abrir_edicao_empresa=self.abrir,
+            preencher_uf=Mock(return_value=True), SIEG_UF_PADRAO="CE",
+            clicar_salvar_e_continuar=Mock(), garantir_input_ativo=Mock(),
+            clicar_botao_atualizar_certificado=Mock(return_value=True),
+            aguardar_interface_pronta=Mock(), aplicar_filtro_vencidos=Mock(),
+            alterar_paginacao_para_200=self.paginar,
+        )["preparar_tela_upload_certificado"]
+
+    def test_nao_busca_empresa_com_edicao_anterior_aberta(self):
+        self.voltar.return_value = False
+        with self.assertRaises(RuntimeError):
+            self.preparar(self.page, "05230004000180", "Empresa")
+        self.localizar.assert_not_called()
+        self.abrir.assert_not_called()
+
+    def test_recupera_listagem_antes_de_declarar_empresa_ausente(self):
+        self.localizar.side_effect = [None, self.linha]
+        self.preparar(self.page, "05230004000180", "Empresa")
+        self.page.reload.assert_called_once()
+        self.paginar.assert_called_once()
+        self.abrir.assert_called_once_with(self.page, self.linha)
+
+    def test_ausencia_persistente_nao_abre_outra_empresa(self):
+        self.localizar.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "05230004000180"):
+            self.preparar(self.page, "05230004000180", "Empresa")
+        self.page.reload.assert_called_once()
+        self.abrir.assert_not_called()
+
+
 class EnvioCertificadoTest(unittest.TestCase):
     def setUp(self):
         self.page = Mock()
@@ -184,7 +227,7 @@ class EnvioCertificadoTest(unittest.TestCase):
             "senha": "senha-ficticia",
             "pasta_nome": "Pasta de teste",
         }
-        self.preparar = Mock()
+        self.preparar = Mock(return_value=self.page)
         self.validar = Mock(return_value=(True, "Senha correta"))
         self.avancar = Mock()
         self.marcar = Mock()

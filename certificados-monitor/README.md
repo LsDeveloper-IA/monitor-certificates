@@ -40,18 +40,20 @@ Arquivos `.db` e `.sqlite3` são ignorados pelo Git.
 - `/api/certificados`: consulta e manutenção dos certificados.
 - `/api/automacao/*`: execução, interrupção, saúde, histórico e agendamento do
   motor de monitoramento.
-- `/api/automacao/sieg-*`: execução sequencial de `automacao-sieg` e `Auto_NC`.
+- `/api/automacao/sieg-*`: execução sequencial de `automacao-sieg`, `Auto_NC` e
+  `automacao-conthabil`.
 - `GET /api/relatorios/certificados-vencidos`: consolida os relatórios SIEG.
 - `/api/whatscontabil/*`: validação da integração de mensagens.
 
 Na sincronização, CPF/CNPJ é normalizado e usado para atualizar o cadastro sem
 criar uma duplicata equivalente. O endpoint não envia mensagens por si só.
 
-## Execução sequencial do SIEG
+## Execução sequencial
 
 `ExecutorAutomacao` inicia `automacao-sieg` e aguarda seu encerramento. Somente
-após código de saída zero inicia `Auto_NC`. Uma falha ou solicitação de parada
-marca a etapa seguinte como não executada, evitando sessões concorrentes.
+após código de saída zero inicia `Auto_NC` e, em seguida, `automacao-conthabil`.
+Uma falha ou solicitação de parada marca as etapas seguintes como não
+executadas, evitando sessões concorrentes.
 
 ## Testes
 
