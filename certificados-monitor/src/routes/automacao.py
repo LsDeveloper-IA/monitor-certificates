@@ -9,6 +9,7 @@ from sqlalchemy import text
 from src.models.user import db
 from src.services.executor_automacao import executor_automacao, executor_sieg_automacao
 from src.services.agendador_automacao import agendador_automacao
+from src.caminhos import pasta_segredos
 from automation_engine.registro_alertas import listar_alertas_enviados
 from automation_engine.resumo_atualizacoes_email import (
     enviar_resumo_atualizacoes,
@@ -17,7 +18,7 @@ from automation_engine.resumo_atualizacoes_email import (
 
 
 automacao_bp = Blueprint("automacao", __name__)
-PASTA_BACKEND = Path(__file__).resolve().parents[2]
+PASTA_SEGREDOS = pasta_segredos()
 
 
 def _acesso_permitido():
@@ -142,8 +143,8 @@ def saude_integracoes():
 
     pasta_certificados = os.getenv("PASTA_CERTIFICADOS", "").strip()
     pasta_disponivel = bool(pasta_certificados) and Path(pasta_certificados).exists()
-    token_drive = (PASTA_BACKEND / "automation_engine" / "token.json").exists()
-    credenciais_drive = (PASTA_BACKEND / "automation_engine" / "credentials.json").exists()
+    token_drive = (PASTA_SEGREDOS / "token.json").exists()
+    credenciais_drive = (PASTA_SEGREDOS / "credentials.json").exists()
     drive_ok = pasta_disponivel and token_drive and credenciais_drive
     integracoes.append({
         "id": "google_drive",
@@ -160,8 +161,7 @@ def saude_integracoes():
         os.getenv("GOOGLE_DRIVE_PASTA_RELATORIOS_PDF_ID", "").strip()
     )
     token_relatorios = (
-        PASTA_BACKEND
-        / "automation_engine"
+        PASTA_SEGREDOS
         / "token_drive_relatorios.json"
     ).exists()
     template_relatorio_link = bool(

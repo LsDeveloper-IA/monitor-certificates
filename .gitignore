@@ -36,3 +36,16 @@ Auto_NC/*.xlsx
 Auto_NC/*.log
 Auto_NC/*.db
 Auto_NC/*.sqlite*
+
+# Ambiente e dependencias
+.venv/
+node_modules/
+.pytest_cache/
+
+# Dados gerados em producao (unica pasta que cresce fora do git)
+storage/*
+!storage/.gitkeep
+
+# Saidas locais das automacoes
+automacao-sieg/registros/
+automacao-conthabil/dados/

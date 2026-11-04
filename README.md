@@ -15,7 +15,8 @@ compartilhado entre elas.
 | `Auto_NC/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
 | `automacao-conthabil/` | Renova certificados no portal Conthabil usando os arquivos do Google Drive. |
 | `sieg_comum/` | Login, navegação e cliente do Drive usados pelas automações do SIEG. |
-| `scripts/` | Inicialização do ambiente local. |
+| `scripts/` | Inicialização do ambiente local e execução dos testes. |
+| `storage/` | Dados gerados: banco, logs, relatórios, planilhas e credenciais. Fora do Git. |
 
 ## Fluxo das automações
 
@@ -56,7 +57,24 @@ Copie e preencha os exemplos de configuração de cada componente:
 - `automacao-conthabil/.env.example` → `automacao-conthabil/.env`
 
 Mantenha `.env`, `credentials.json`, `token.json`, bancos locais e relatórios
-fora do Git.
+fora do Git. Credenciais e tokens OAuth ficam em `storage/secrets/<componente>`:
+
+```text
+storage/
+├── database/app.db          # banco SQLite do backend
+├── runtime/                 # históricos, agendador e logs das execuções
+├── automation_engine/       # dados e relatórios do motor de certificados
+├── auto_nc/                 # empresas_sieg.json e empresas_sem_certificado.json
+├── conthabil/               # downloads e relatórios do Conthabil
+├── automacao_sieg/          # checkpoints e evidências
+└── secrets/
+    ├── backend/             # credentials.json, token.json, token_email.json
+    ├── auto_nc/
+    └── automacao_sieg/
+```
+
+O `storage/` é ignorado pelo Git. Em produção, defina `STORAGE_DIR` para apontar
+para outro disco/pasta quando necessário.
 
 ## Execução integrada
 
@@ -68,10 +86,18 @@ npm run dev
 
 O script inicia o backend em `http://127.0.0.1:5000`, aguarda a API responder e
 abre o frontend em `http://localhost:3000`. Os logs do backend ficam em
-`certificados-monitor/runtime/`. Ao encerrar o Next.js, o processo Flask aberto
-pelo script também é encerrado.
+`storage/runtime/`. Ao encerrar o Next.js, o processo Flask aberto pelo script
+também é encerrado.
 
 ## Testes
+
+Execute todas as suites de uma vez a partir da raiz:
+
+```powershell
+.\scripts\test.ps1
+```
+
+Ou rode cada suite isoladamente:
 
 ```powershell
 cd certificados-monitor

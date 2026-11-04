@@ -1,5 +1,5 @@
 import _bootstrap
-from config import PASTA_EXECUCAO, SCOPES, SIMILARIDADE_MINIMA_PASTA
+from config import PASTA_SEGREDOS, SCOPES, SIMILARIDADE_MINIMA_PASTA
 from sieg_comum import drive as cliente
 from sieg_comum.drive import (
     criar_indice_pastas_drive,
@@ -10,7 +10,7 @@ from sieg_comum.drive import (
 
 def autenticar_drive():
     return cliente.autenticar_drive(
-        PASTA_EXECUCAO / "credentials.json", PASTA_EXECUCAO / "token.json", SCOPES,
+        PASTA_SEGREDOS / "credentials.json", PASTA_SEGREDOS / "token.json", SCOPES,
     )
 
 

@@ -11,6 +11,8 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
+from src.caminhos import pasta_storage
+
 
 class ExecutorAutomacao:
     _CODIGO_NAO_EXECUTADO = -2
@@ -88,7 +90,7 @@ class ExecutorAutomacao:
         self._arquivo_historico = (
             Path(arquivo_historico)
             if arquivo_historico
-            else Path(__file__).resolve().parents[2]
+            else pasta_storage()
             / "runtime"
             / "historico_automacao.json"
         )
@@ -528,7 +530,7 @@ class ExecutorAutomacao:
 
 executor_automacao = ExecutorAutomacao()
 executor_sieg_automacao = ExecutorAutomacao(
-    arquivo_historico=Path(__file__).resolve().parents[2] / "runtime" / "historico_sieg.json",
+    arquivo_historico=pasta_storage() / "runtime" / "historico_sieg.json",
     pastas_motores={
         "certificados_vencidos": Path(__file__).resolve().parents[3]
         / "automacao-sieg",

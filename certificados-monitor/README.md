@@ -30,8 +30,9 @@ certificados, PDFs ou bancos SQLite ao Git.
 python -m flask --app src.main run --host 127.0.0.1 --port 5000 --no-reload
 ```
 
-A aplicação cria o SQLite local em `src/database/app.db` quando necessário.
-Arquivos `.db` e `.sqlite3` são ignorados pelo Git.
+A aplicação cria o SQLite local em `../storage/database/app.db` quando necessário.
+Arquivos `.db` e `.sqlite3` ficam fora do Git. Defina `STORAGE_DIR` para usar
+outro diretório de dados em produção.
 
 ## Principais APIs
 
@@ -70,7 +71,8 @@ O teste manual que envia um resumo fictício está separado em
 `scripts/testar_resumo_atualizacoes_email.py` e só deve ser executado quando um
 envio for autorizado.
 
-Logs e históricos de execução são gravados em `runtime/`.
+Logs e históricos de execução são gravados em `../storage/runtime/`.
+Credenciais e tokens OAuth ficam em `../storage/secrets/backend/`.
 
 ## Histórico de acompanhamento dos certificados
 
@@ -95,7 +97,7 @@ confirmação. A edição preserva autor, data original e imagens.
 Não são sobrescritos pela sincronização nem alteram as observações técnicas.
 
 As tabelas são criadas ao iniciar o backend. Registros e imagens ficam no banco
-`src/database/app.db`; inclua esse banco nos backups, inclusive para preservar
-os anexos. As imagens são validadas e reprocessadas antes do armazenamento e
+`../storage/database/app.db`; inclua esse banco nos backups, inclusive para
+preservar os anexos. As imagens são validadas e reprocessadas antes do armazenamento e
 não recebem um endereço público. Reinicie o backend e reconstrua o frontend
 para disponibilizar esta funcionalidade em uma instalação existente.

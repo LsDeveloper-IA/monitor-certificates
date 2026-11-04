@@ -3,7 +3,7 @@ $ErrorActionPreference = "Stop"
 $projectRoot = Split-Path -Parent $PSScriptRoot
 $backendDir = Join-Path $projectRoot "certificados-monitor"
 $frontendDir = Join-Path $projectRoot "certificados-frontend"
-$runtimeDir = Join-Path $backendDir "runtime"
+$runtimeDir = Join-Path $projectRoot "storage\runtime"
 $pythonExe = (Get-Command python -ErrorAction Stop).Source
 $nextExe = Join-Path $frontendDir "node_modules\.bin\next.cmd"
 

@@ -9,6 +9,11 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.http import MediaFileUpload
 
+try:
+    from utils.caminhos import obter_pasta_segredos
+except ModuleNotFoundError:  # Importacao a partir da raiz do backend.
+    from automation_engine.utils.caminhos import obter_pasta_segredos
+
 
 SCOPES = [
     "https://www.googleapis.com/auth/drive.readonly"
@@ -20,7 +25,9 @@ ESCOPO_ARQUIVOS_CRIADOS = "https://www.googleapis.com/auth/drive.file"
 class ErroRelatorioDrive(Exception):
     """Erro compreensivel ao publicar um relatorio no Google Drive."""
 
-def conectar_google_drive(pasta_projeto):
+
+def _pasta_credenciais(pasta_projeto):
+    """Resolve a pasta que contem credentials.json e tokens do Google."""
     pasta_projeto = Path(pasta_projeto).resolve()
     pasta_configurada = os.getenv("GOOGLE_DRIVE_CREDENCIAIS_DIR", "").strip()
     candidatas = []
@@ -29,11 +36,17 @@ def conectar_google_drive(pasta_projeto):
         if not configurada.is_absolute():
             configurada = pasta_projeto / configurada
         candidatas.append(configurada.resolve())
+    candidatas.append(obter_pasta_segredos("backend", pasta_projeto))
     candidatas.extend([pasta_projeto, *pasta_projeto.parents])
-    pasta_credenciais = next(
+    return next(
         (pasta for pasta in candidatas if (pasta / "credentials.json").exists()),
         pasta_projeto,
     )
+
+
+def conectar_google_drive(pasta_projeto):
+    pasta_projeto = Path(pasta_projeto).resolve()
+    pasta_credenciais = _pasta_credenciais(pasta_projeto)
     arquivo_credentials = pasta_credenciais / "credentials.json"
     arquivo_token = pasta_credenciais / "token.json"
     credenciais = None
@@ -80,9 +93,9 @@ def conectar_google_drive(pasta_projeto):
 
 def conectar_google_drive_relatorios(pasta_projeto):
     """Cria um cliente separado, capaz de gravar apenas arquivos do aplicativo."""
-    pasta_projeto = Path(pasta_projeto)
-    arquivo_credentials = pasta_projeto / "credentials.json"
-    arquivo_token = pasta_projeto / "token_drive_relatorios.json"
+    pasta_credenciais = _pasta_credenciais(pasta_projeto)
+    arquivo_credentials = pasta_credenciais / "credentials.json"
+    arquivo_token = pasta_credenciais / "token_drive_relatorios.json"
     escopos = [ESCOPO_ARQUIVOS_CRIADOS]
     credenciais = None
 

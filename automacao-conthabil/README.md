@@ -13,7 +13,7 @@ saída padrão e acompanhado pelo painel web, junto das automações do SIEG.
 4. Valida localmente: senha, CNPJ do certificado e data de validade futura.
 5. Importa os válidos em lotes pelo endpoint `bulk-create`.
 6. Confere o resultado na API e grava o relatório em
-   `dados\<data-hora>\resultado.csv` e `.md`.
+   `storage/conthabil/dados/<data-hora>/resultado.csv` e `.md`.
 
 ## Configuração
 
@@ -46,8 +46,10 @@ A automação reaproveita `credentials.json` e `token.json` do projeto
 A ordem de busca é:
 
 1. `GOOGLE_DRIVE_CREDENCIAIS_DIR`, quando informado;
-2. `automacao-conthabil/credenciais/`;
-3. raiz do repositório.
+2. `storage/secrets/auto_nc/`;
+3. `storage/secrets/backend/`;
+4. `automacao-conthabil/credenciais/`;
+5. raiz do repositório.
 
 Se o token expirar e não puder ser renovado, gere um novo executando uma das
 outras automações do projeto e copie o `token.json`.
@@ -83,5 +85,6 @@ O código de saída segue o padrão das demais automações:
 
 - As senhas dos certificados não são gravadas em disco nem nos relatórios;
   são usadas apenas em memória e no envio ao portal.
-- O `.pfx` baixado fica em `dados\<execução>\` — apague quando não precisar.
-- Não versione `.env`, `credenciais/` nem `dados/`.
+- O `.pfx` baixado fica em `storage/conthabil/dados/<execução>/` — apague quando
+  não precisar.
+- Não versione `.env`, `credenciais/` nem `storage/`.

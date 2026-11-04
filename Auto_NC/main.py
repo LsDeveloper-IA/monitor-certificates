@@ -1,7 +1,23 @@
+import os
 import sys
 from pathlib import Path
 
 RAIZ = str(Path(__file__).resolve().parents[1])
+
+
+def _resolver_pasta_storage():
+    """Retorna a pasta de dados gerados, fora do codigo versionado."""
+    configurada = os.getenv("STORAGE_DIR", "").strip()
+    if configurada:
+        caminho = Path(configurada).expanduser()
+        if not caminho.is_absolute():
+            caminho = Path(RAIZ) / caminho
+        return caminho.resolve()
+    return Path(RAIZ) / "storage"
+
+
+PASTA_STORAGE = _resolver_pasta_storage()
+PASTA_SEGREDOS = PASTA_STORAGE / "secrets" / "auto_nc"
 if RAIZ not in sys.path:
     sys.path.insert(0, RAIZ)
 
@@ -11,7 +27,6 @@ from sieg_comum.navegacao import clicar_com_rolagem, abrir_edicao_empresa, preen
 from sieg_comum.sessao import realizar_login_sieg
 from sieg_comum import drive as cliente_drive
 
-import os
 import json
 import re
 import tempfile
@@ -47,13 +62,13 @@ carregar_arquivo_env()
 # ---------------------------------------------------------
 # CONFIGURAÇÕES DE PASTA E TEMPOS DE ESPERA
 # ---------------------------------------------------------
-# Configure o ID da pasta raiz no Google Drive e coloque credentials.json neste diretório.
+# Configure o ID da pasta raiz no Google Drive e coloque credentials.json em storage/secrets/auto_nc.
 ID_PASTA_DRIVE_CERTIFICADOS = os.getenv("GOOGLE_DRIVE_FOLDER_ID", "").strip()
 ARQUIVO_CREDENCIAIS_GOOGLE = Path(
-    os.getenv("GOOGLE_DRIVE_CREDENTIALS", "credentials.json")
+    os.getenv("GOOGLE_DRIVE_CREDENTIALS", str(PASTA_SEGREDOS / "credentials.json"))
 )
 ARQUIVO_TOKEN_GOOGLE = Path(
-    os.getenv("GOOGLE_DRIVE_TOKEN", "token.json")
+    os.getenv("GOOGLE_DRIVE_TOKEN", str(PASTA_SEGREDOS / "token.json"))
 )
 ESCOPO_GOOGLE_DRIVE = ["https://www.googleapis.com/auth/drive"]
 ID_PASTA_DRIVE_RELATORIO = os.getenv("AUTO_NC_REPORT_FOLDER_ID", "").strip()
@@ -61,10 +76,10 @@ PASTA_TEMPORARIA_DRIVE = Path(tempfile.gettempdir()) / "auto_nc_drive"
 ARQUIVO_RELATORIO_SEM_CERTIFICADO = Path(
     os.getenv(
         "AUTO_NC_RELATORIO_PATH",
-        str(Path(__file__).with_name("empresas_sem_certificado.json")),
+        str(PASTA_STORAGE / "auto_nc" / "empresas_sem_certificado.json"),
     )
 )
-ARQUIVO_EMPRESAS_SIEG = Path(__file__).with_name("empresas_sieg.json")
+ARQUIVO_EMPRESAS_SIEG = PASTA_STORAGE / "auto_nc" / "empresas_sieg.json"
 SIEG_EMAIL = os.getenv("SIEG_EMAIL", "")
 SIEG_SENHA = os.getenv("SIEG_SENHA", "")
 
@@ -141,8 +156,12 @@ def salvar_base_empresas_sieg(empresas, total_esperado):
         "atualizado_em": datetime.now().isoformat(),
         "empresas": list(ativas.values()),
     }
+    ARQUIVO_EMPRESAS_SIEG.parent.mkdir(parents=True, exist_ok=True)
     temporario = ARQUIVO_EMPRESAS_SIEG.with_suffix(".tmp")
-    temporario.write_text(json.dumps(dados, ensure_ascii=False, indent=2), encoding="utf-8")
+    temporario.write_text(
+        json.dumps(dados, ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
     os.replace(temporario, ARQUIVO_EMPRESAS_SIEG)
     return True
 

@@ -46,13 +46,14 @@ from integracoes.google_drive import (
 )
 from integracoes.api_monitor import ErroIntegracaoApi, sincronizar_com_api
 from resumo_atualizacoes_email import enviar_resumo_atualizacoes
-from utils.caminhos import obter_arquivo_env, obter_pasta_aplicacao
+from utils.caminhos import obter_arquivo_env, obter_pasta_aplicacao, obter_pasta_storage
 from utils.terminal import escrever, progresso, tabela, titulo
 
 
 PASTA_APLICACAO = obter_pasta_aplicacao()
+PASTA_STORAGE = obter_pasta_storage(PASTA_APLICACAO)
 ARQUIVO_ENV = obter_arquivo_env(PASTA_APLICACAO)
-pasta_planilhas_locais = PASTA_APLICACAO / "planilhas"
+pasta_planilhas_locais = PASTA_STORAGE / "automation_engine" / "planilhas"
 load_dotenv(ARQUIVO_ENV)
 pasta_e_cnpj = Path(os.getenv("PASTA_CERTIFICADOS", "certificados"))
 arquivo_excel = Path(os.getenv("ARQUIVO_EXCEL", "relatorio_certificados.xlsx"))
@@ -205,7 +206,7 @@ def resumir_motivo_pendencia(motivo):
 
 def salvar_relatorios_execucao(resultados, consulta_banco_realizada):
     """Salva um resumo TXT e uma lista CSV de pendencias sem dados secretos."""
-    pasta_relatorios = PASTA_APLICACAO / "relatorios"
+    pasta_relatorios = PASTA_STORAGE / "automation_engine" / "relatorios"
     pasta_relatorios.mkdir(parents=True, exist_ok=True)
     identificador = datetime.now().strftime("%Y%m%d_%H%M%S")
     caminho_txt = pasta_relatorios / f"execucao_{identificador}.txt"

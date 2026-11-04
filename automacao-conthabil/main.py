@@ -40,6 +40,15 @@ def registrar(mensagem: str) -> None:
     print(str(mensagem).rstrip(), flush=True)
 
 
+def _pasta_storage() -> Path:
+    """Retorna a raiz dos dados gerados, fora do codigo versionado."""
+    configurada = os.getenv("STORAGE_DIR", "").strip()
+    if configurada:
+        pasta = Path(configurada).expanduser()
+        return pasta if pasta.is_absolute() else RAIZ / pasta
+    return RAIZ / "storage"
+
+
 def pasta_credenciais_drive() -> Path:
     """Usa a pasta configurada ou reaproveita as credenciais do repositorio."""
     configurada = os.getenv("GOOGLE_DRIVE_CREDENCIAIS_DIR", "").strip()
@@ -47,7 +56,14 @@ def pasta_credenciais_drive() -> Path:
         pasta = Path(configurada)
         return pasta if pasta.is_absolute() else BASE / pasta
 
-    for candidata in (BASE / "credenciais", RAIZ):
+    storage = _pasta_storage()
+    candidatas = (
+        BASE / "credenciais",
+        storage / "secrets" / "auto_nc",
+        storage / "secrets" / "backend",
+        RAIZ,
+    )
+    for candidata in candidatas:
         if (candidata / "token.json").exists():
             return candidata
 
@@ -57,7 +73,7 @@ def pasta_credenciais_drive() -> Path:
 def pasta_de_dados() -> Path:
     configurada = os.getenv("CONTHABIL_SAIDA", "").strip()
     if not configurada:
-        return BASE / "dados"
+        return _pasta_storage() / "conthabil" / "dados"
     pasta = Path(configurada)
     return pasta if pasta.is_absolute() else BASE / pasta
 

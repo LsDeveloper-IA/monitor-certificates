@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from src.services.executor_automacao import executor_automacao
+from src.caminhos import pasta_storage
 
 
 class AgendadorAutomacao:
@@ -13,7 +14,7 @@ class AgendadorAutomacao:
         self._arquivo = (
             Path(arquivo_configuracao)
             if arquivo_configuracao
-            else Path(__file__).resolve().parents[2]
+            else pasta_storage()
             / "runtime"
             / "agendador_automacao.json"
         )

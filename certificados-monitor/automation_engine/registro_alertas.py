@@ -4,13 +4,13 @@ from datetime import datetime
 from pathlib import Path
 
 try:
-    from utils.caminhos import obter_pasta_aplicacao
+    from utils.caminhos import obter_pasta_storage
 except ModuleNotFoundError:  # Importacao pelo backend e pelos testes.
-    from automation_engine.utils.caminhos import obter_pasta_aplicacao
+    from automation_engine.utils.caminhos import obter_pasta_storage
 
 
 CAMINHO_REGISTRO = (
-    obter_pasta_aplicacao() / "dados" / "alertas_enviados.sqlite3"
+    obter_pasta_storage() / "automation_engine" / "dados" / "alertas_enviados.sqlite3"
 )
 
 

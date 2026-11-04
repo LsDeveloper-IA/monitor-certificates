@@ -14,9 +14,6 @@ ESPERA_ENTRE_TENTATIVAS = 30
 SIMILARIDADE_MINIMA_PASTA = 0.85
 PASTA_EXECUCAO = Path(__file__).resolve().parent
 ARQUIVO_ENV = PASTA_EXECUCAO / ".env"
-PASTA_REGISTROS = PASTA_EXECUCAO / "registros"
-PASTA_ERROS = PASTA_REGISTROS / "erros"
-ARQUIVO_CHECKPOINT = PASTA_REGISTROS / "checkpoint.json"
 MIME_GOOGLE_DOC = "application/vnd.google-apps.document"
 
 
@@ -34,6 +31,17 @@ def carregar_arquivo_env():
 
 
 carregar_arquivo_env()
+
+PASTA_STORAGE = Path(
+    os.getenv("STORAGE_DIR", "").strip() or (PASTA_EXECUCAO.parent / "storage")
+).expanduser()
+if not PASTA_STORAGE.is_absolute():
+    PASTA_STORAGE = PASTA_EXECUCAO / PASTA_STORAGE
+PASTA_STORAGE = PASTA_STORAGE.resolve()
+PASTA_SEGREDOS = PASTA_STORAGE / "secrets" / "automacao_sieg"
+PASTA_REGISTROS = PASTA_STORAGE / "automacao_sieg" / "registros"
+PASTA_ERROS = PASTA_REGISTROS / "erros"
+ARQUIVO_CHECKPOINT = PASTA_REGISTROS / "checkpoint.json"
 
 
 DRIVE_ROOT_FOLDER_ID = os.getenv("DRIVE_ROOT_FOLDER_ID", "").strip()

@@ -7,6 +7,11 @@ from flask import Flask, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
 from pathlib import Path
+
+# Carrega a configuracao antes de importar modulos que resolvem caminhos de storage.
+load_dotenv(Path(__file__).resolve().parents[2] / '.env')
+load_dotenv()
+
 from src.models.user import db
 from src.models.certificado import Certificado
 from src.routes.user import user_bp
@@ -19,9 +24,8 @@ from src.routes.historico import historico_bp
 from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
 from src.services.agendador_automacao import agendador_automacao
+from src.caminhos import garantir_pasta, pasta_storage
 
-load_dotenv(Path(__file__).resolve().parents[2] / '.env')
-load_dotenv()
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
 modo_debug = os.getenv('FLASK_DEBUG', 'false').strip().lower() in {'1', 'true', 'sim', 'yes'}
 app.config['DEBUG'] = modo_debug
@@ -43,8 +47,9 @@ app.register_blueprint(whatscontabil_bp, url_prefix='/api')
 app.register_blueprint(relatorio_bp, url_prefix='/api')
 app.register_blueprint(historico_bp, url_prefix='/api')
 
-# uncomment if you need to use database
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(os.path.dirname(__file__), 'database', 'app.db')}"
+# Banco local fica em storage/, fora do codigo versionado.
+pasta_banco = garantir_pasta(pasta_storage() / 'database')
+app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{pasta_banco / 'app.db'}"
 app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db.init_app(app)
 with app.app_context():

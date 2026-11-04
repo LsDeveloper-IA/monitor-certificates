@@ -23,6 +23,11 @@ from reportlab.platypus import (
 )
 from xml.sax.saxutils import escape
 
+try:
+    from utils.caminhos import obter_pasta_storage
+except ModuleNotFoundError:  # Importacao pelo backend e pelos testes.
+    from automation_engine.utils.caminhos import obter_pasta_storage
+
 from integracoes.whatscontabil import (
     ErroWhatsContabil,
     enviar_midia,
@@ -878,7 +883,12 @@ def enviar_alertas_internos(alertas, pasta_projeto, telefone, whatsapp_id):
         "Responsavel",
     ).strip() or "Responsavel"
     transmissoes = []
-    pasta_relatorios = Path(pasta_projeto) / "relatorios" / "whatscontabil"
+    pasta_relatorios = (
+        obter_pasta_storage(pasta_projeto)
+        / "automation_engine"
+        / "relatorios"
+        / "whatscontabil"
+    )
 
     def adicionar_relatorio_por_link(tipo, itens, nome_destino):
         """Gera, publica e prepara um relatorio; falhas nao cancelam os clientes."""

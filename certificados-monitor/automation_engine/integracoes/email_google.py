@@ -11,9 +11,9 @@ from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 try:
-    from utils.caminhos import obter_pasta_aplicacao
+    from utils.caminhos import obter_pasta_aplicacao, obter_pasta_segredos
 except ModuleNotFoundError:  # Importacao a partir da raiz do backend.
-    from automation_engine.utils.caminhos import obter_pasta_aplicacao
+    from automation_engine.utils.caminhos import obter_pasta_aplicacao, obter_pasta_segredos
 
 
 ESCOPO_EMAIL_SMTP = ["https://mail.google.com/"]
@@ -24,14 +24,18 @@ class ErroEmailGoogle(RuntimeError):
 
 
 def obter_credenciais(pasta_projeto=None):
-    """Obtém credenciais OAuth exclusivas para o envio de e-mail."""
+    """Obtem credenciais OAuth exclusivas para o envio de e-mail."""
     if pasta_projeto is None:
         pasta_projeto = obter_pasta_aplicacao()
     else:
         pasta_projeto = Path(pasta_projeto)
 
-    arquivo_credentials = pasta_projeto / "credentials.json"
-    arquivo_token_email = pasta_projeto / "token_email.json"
+    pasta_credenciais = obter_pasta_segredos("backend", pasta_projeto)
+    if not (pasta_credenciais / "credentials.json").exists():
+        pasta_credenciais = pasta_projeto
+
+    arquivo_credentials = pasta_credenciais / "credentials.json"
+    arquivo_token_email = pasta_credenciais / "token_email.json"
     credenciais = None
 
     if not arquivo_credentials.exists():

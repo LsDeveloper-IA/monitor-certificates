@@ -16,6 +16,7 @@ from automation_engine.integracoes.google_drive import (
 )
 from src.models.empresa_relatorio import EmpresaRelatorio, RelatorioDriveProcessado
 from src.models.user import db
+from src.caminhos import pasta_segredos, pasta_storage
 
 
 relatorio_bp = Blueprint("relatorio", __name__)
@@ -23,7 +24,7 @@ _lock_acumulacao = threading.Lock()
 
 
 def _carregar_empresas_sem_certificado():
-    arquivo = Path(__file__).resolve().parents[3] / "Auto_NC" / "empresas_sem_certificado.json"
+    arquivo = pasta_storage() / "auto_nc" / "empresas_sem_certificado.json"
     try:
         conteudo = json.loads(arquivo.read_text(encoding="utf-8"))
         empresas = conteudo.get("empresas", [])
@@ -34,7 +35,7 @@ def _carregar_empresas_sem_certificado():
 
 
 def _carregar_base_empresas_sieg():
-    arquivo = Path(__file__).resolve().parents[3] / "Auto_NC" / "empresas_sieg.json"
+    arquivo = pasta_storage() / "auto_nc" / "empresas_sieg.json"
     try:
         dados = json.loads(arquivo.read_text(encoding="utf-8"))
         if isinstance(dados, dict) and dados.get("completo") is True and isinstance(dados.get("empresas"), list):
@@ -279,10 +280,11 @@ def _pasta_com_credenciais():
         return pasta_configurada.resolve()
 
     raiz = Path(__file__).resolve().parents[2]
-    candidatas = (raiz / "automation_engine", raiz, raiz.parent)
+    segredos = pasta_segredos()
+    candidatas = (segredos, raiz / "automation_engine", raiz, raiz.parent)
     return next(
         (pasta for pasta in candidatas if (pasta / "credentials.json").exists()),
-        raiz,
+        segredos,
     )
 
 

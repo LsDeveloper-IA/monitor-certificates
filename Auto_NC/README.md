@@ -12,8 +12,8 @@ pelo painel.
 - Considera o status da coluna de certificado, sem misturar outras colunas.
 - Registra empresas que continuam sem certificado e tenta localizar seus
   arquivos pela razão social no Drive.
-- Salva `empresas_sieg.json` e `empresas_sem_certificado.json` localmente e
-  envia o relatório para a pasta configurada.
+- Salva `empresas_sieg.json` e `empresas_sem_certificado.json` em
+  `storage/auto_nc/` e envia o relatório para a pasta configurada.
 - O navegador roda em modo invisível (`headless`).
 - Com `AUTO_NC_EMPRESA_ALVO` ou `AUTO_NC_CNPJ_ALVO`, processa somente a empresa
   indicada e encerra, sem alterar os relatórios existentes.
@@ -32,12 +32,17 @@ AUTO_NC_REPORT_FOLDER_ID=id-da-pasta-de-relatorios
 
 Opções adicionais:
 
-- `GOOGLE_DRIVE_CREDENTIALS`: caminho de `credentials.json`.
-- `GOOGLE_DRIVE_TOKEN`: caminho de `token.json`.
-- `AUTO_NC_RELATORIO_PATH`: caminho do relatório JSON local.
+- `GOOGLE_DRIVE_CREDENTIALS`: caminho de `credentials.json`. Padrão:
+  `storage/secrets/auto_nc/credentials.json`.
+- `GOOGLE_DRIVE_TOKEN`: caminho de `token.json`. Padrão:
+  `storage/secrets/auto_nc/token.json`.
+- `AUTO_NC_RELATORIO_PATH`: caminho do relatório JSON local. Padrão:
+  `storage/auto_nc/empresas_sem_certificado.json`.
+- `STORAGE_DIR`: raiz alternativa para os dados gerados.
 
 Os dois IDs de pasta são obrigatórios. A primeira autorização do Google pode
-abrir o fluxo OAuth; depois, a credencial é persistida em `token.json`.
+abrir o fluxo OAuth; depois, a credencial é persistida em
+`storage/secrets/auto_nc/token.json`.
 
 Se `GOOGLE_DRIVE_FOLDER_ID` não for informado no `Auto_NC/.env`, o valor é
 herdado do `.env` da raiz do projeto. A pasta precisa ser a que contém uma

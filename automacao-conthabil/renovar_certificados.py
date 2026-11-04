@@ -464,7 +464,16 @@ def main(argv: list[str] | None = None) -> int:
     def cfg(chave: str, padrao: str = "") -> str:
         return os.getenv(chave) or config.get(chave) or padrao
 
-    pasta_dados = Path(argumentos.saida) if argumentos.saida else base / "dados"
+    pasta_storage = Path(
+        os.getenv("STORAGE_DIR", "").strip() or (base.parent / "storage")
+    ).expanduser()
+    if not pasta_storage.is_absolute():
+        pasta_storage = base / pasta_storage
+    pasta_dados = (
+        Path(argumentos.saida)
+        if argumentos.saida
+        else pasta_storage / "conthabil" / "dados"
+    )
     pasta_dados.mkdir(parents=True, exist_ok=True)
 
     try:

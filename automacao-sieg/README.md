@@ -37,8 +37,9 @@ DRIVE_RELATORIOS_FOLDER_ID=id-da-pasta-de-relatorios
 Os IDs das pastas e `SIEG_UF_PADRAO` são obrigatórios. A UF aceita qualquer
 sigla brasileira; ela não substitui um Estado já preenchido no SIEG.
 
-Coloque `credentials.json` nesta pasta. Na primeira autorização, o fluxo OAuth
-gera `token.json`; as execuções seguintes usam esse arquivo seguro em JSON.
+Coloque `credentials.json` em `storage/secrets/automacao_sieg/`. Na primeira
+autorização, o fluxo OAuth gera `token.json` na mesma pasta; as execuções
+seguintes usam esse arquivo seguro em JSON.
 
 `SIEG_SLOW_MO_MS` adiciona atraso após ações do Playwright. Use `0` para a
 execução normal e aumente somente se uma medição real indicar instabilidade.
@@ -58,7 +59,7 @@ começar.
 ## Retomada e arquivos gerados
 
 ```text
-registros/
+storage/automacao_sieg/registros/
 ├── checkpoint.json
 ├── resumo_AAAAMMDD_HHMMSS.txt
 └── erros/

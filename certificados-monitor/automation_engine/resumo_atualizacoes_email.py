@@ -6,6 +6,11 @@ from datetime import datetime
 from pathlib import Path
 
 try:
+    from utils.caminhos import obter_pasta_storage
+except ModuleNotFoundError:  # Importacao pelos testes a partir da raiz do backend.
+    from automation_engine.utils.caminhos import obter_pasta_storage
+
+try:
     from integracoes.email_google import ErroEmailGoogle, enviar_email
 except ModuleNotFoundError:  # Importacao pelos testes a partir da raiz do backend.
     from automation_engine.integracoes.email_google import (
@@ -21,7 +26,7 @@ def _arquivo_historico():
     caminho = os.getenv("HISTORICO_RESUMO_ATUALIZACOES", "").strip()
     if caminho:
         return Path(caminho)
-    return Path(__file__).resolve().parent.parent / "runtime" / "resumos_atualizacoes.json"
+    return obter_pasta_storage() / "runtime" / "resumos_atualizacoes.json"
 
 
 def listar_resumos_atualizacoes(limite=30):
