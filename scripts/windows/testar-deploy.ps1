@@ -24,7 +24,7 @@ $privateFiles = @(
 foreach ($path in $privateFiles) {
     if (Test-DeployablePath $path) { throw "Arquivo privado aceito: $path" }
 }
-foreach ($path in @('certificados-monitor/src/main.py', 'certificados-monitor/requirements.txt', 'certificados-monitor/.env.example', 'certificados-frontend/src/app/page.tsx', 'certificados-frontend/package-lock.json')) {
+foreach ($path in @('certificados-monitor/src/main.py', 'certificados-monitor/requirements.txt', 'certificados-monitor/.env.example', 'config/__init__.py', 'config/validacao.py', 'certificados-frontend/src/app/page.tsx', 'certificados-frontend/package-lock.json')) {
     if (-not (Test-DeployablePath $path)) { throw "Arquivo publico rejeitado: $path" }
     $null = Get-SafeChildPath $PSScriptRoot $path
 }

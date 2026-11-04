@@ -1,0 +1,39 @@
+# Empacotamento e configuracao de ferramentas do repositorio.
+#
+# O backend continua rodando a partir de certificados-monitor/, mas o motor
+# automation_engine pode ser instalado como pacote com:
+#
+#   python -m pip install -e .
+#
+# O pacote compartilhado das automacoes tem pyproject proprio:
+#
+#   python -m pip install -e automacoes/sieg_comum
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "monitor-certificates"
+version = "0.1.0"
+description = "Painel e automacoes de monitoramento de certificados digitais"
+requires-python = ">=3.11"
+
+[tool.setuptools]
+packages = [
+    "automation_engine",
+    "automation_engine.banco",
+    "automation_engine.integracoes",
+    "automation_engine.utils",
+]
+package-dir = { automation_engine = "certificados-monitor/automation_engine" }
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = [
+    "certificados-monitor/tests",
+    "automacoes/sieg/tests",
+    "automacoes/auto_nc/tests",
+    "automacoes/sieg_comum/tests",
+]
+addopts = "--import-mode=importlib"

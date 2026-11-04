@@ -2,7 +2,7 @@ Set-StrictMode -Version Latest
 
 function Test-DeployablePath([string]$Path) {
     $p = $Path.Replace('\', '/')
-    if ($p -notmatch '^(certificados-monitor|certificados-frontend)/') { return $false }
+    if ($p -notmatch '^(certificados-monitor|certificados-frontend|config)/') { return $false }
     if ($p -match '(^|/)(\.\.?)(/|$)') { return $false }
     if ($p -match '(?i)(^|/)(runtime|dados|planilhas|relatorios|logs|database|node_modules|\.next|\.git|\.vercel|__pycache__|\.venv|venv)(/|$)') { return $false }
     $name = ($p -split '/')[-1]

@@ -6,11 +6,19 @@ agendamentos e execução controlada das automações.
 ## Preparar o ambiente
 
 ```powershell
+cd ..
+python -m pip install -e .
+python -m pip install -e automacoes/sieg_comum
+
+cd certificados-monitor
 python -m venv venv
 .\venv\Scripts\Activate.ps1
 python -m pip install -r requirements.txt
 Copy-Item .env.example .env
 ```
+
+O `pyproject.toml` da raiz instala o pacote `automation_engine` e concentra a
+configuração do pytest. `automacoes/sieg_comum` é um pacote separado.
 
 Preencha o `.env`. As chaves mínimas para a aplicação integrada são:
 
@@ -19,6 +27,10 @@ Preencha o `.env`. As chaves mínimas para a aplicação integrada são:
 - `INTEGRACAO_API_KEY`: autenticação da sincronização de certificados.
 - `AUTOMACAO_EXECUTION_KEY`: autenticação das rotas de automação e WhatsContábil.
 - `API_MONITOR_URL`: URL usada pelo motor interno ao sincronizar resultados.
+
+`config/validacao.py`, na raiz, lê e valida essas variáveis antes de subir a
+aplicação. Com `MONITOR_CONFIG_STRICT=sim`, as chaves internas precisam ter
+valor próprio (os placeholders do exemplo são recusados).
 
 O mesmo arquivo documenta as variáveis opcionais de Excel, Google Drive, ODBC,
 WhatsContábil e notificações. Nunca adicione `.env`, tokens, credenciais,
@@ -58,9 +70,18 @@ seguintes como não executadas, evitando sessões concorrentes.
 
 ## Testes
 
-Na pasta `certificados-monitor`:
+A suite única roda na raiz do repositório e cobre backend e automações:
 
 ```powershell
+cd ..
+.\scripts\test.ps1
+# ou: python -m pytest
+```
+
+Para apenas o backend:
+
+```powershell
+cd certificados-monitor
 python -m pytest
 ```
 

@@ -34,7 +34,13 @@ atualização ainda usa um caminho relativo, limitado ao diálogo visível.
 
 ## Uso
 
-As duas entradas adicionam a pasta `automacoes/` ao caminho de imports:
+O pacote pode ser instalado em modo editable a partir da raiz do repositório:
+
+```powershell
+python -m pip install -e automacoes/sieg_comum
+```
+
+As duas entradas também adicionam a pasta `automacoes/` ao caminho de imports:
 
 - `automacoes/sieg/_bootstrap.py`
 - `automacoes/auto_nc/main.py`
@@ -44,11 +50,10 @@ pacote não possui processo independente.
 
 ## Testes
 
-Na pasta `automacoes`:
+Na raiz do repositório, junto com o restante da suite:
 
 ```powershell
-cd automacoes
-python -X utf8 -m unittest discover -s sieg_comum/tests
+python -m pytest automacoes/sieg_comum/tests -q
 ```
 
 Os testes de navegador usam Chromium headless com HTML local. Testes do Drive

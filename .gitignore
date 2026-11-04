@@ -42,6 +42,11 @@ automacoes/auto_nc/*.sqlite*
 node_modules/
 .pytest_cache/
 
+# Empacotamento Python
+build/
+dist/
+*.egg-info/
+
 # Dados gerados em producao (unica pasta que cresce fora do git)
 storage/*
 !storage/.gitkeep

@@ -40,6 +40,13 @@ class RelatorioDriveTestCase(unittest.TestCase):
         leitor_sieg = patch("src.routes.relatorio._carregar_base_empresas_sieg", return_value=None)
         leitor_sieg.start()
         self.addCleanup(leitor_sieg.stop)
+        # O .env pode ter GOOGLE_DRIVE_PASTA_E_CNPJ_ID; sem mock, o endpoint
+        # tentaria paginar o Drive real (ou um MagicMock em testes).
+        empresas_drive = patch(
+            "src.routes.relatorio.listar_empresas_drive", return_value=[]
+        )
+        empresas_drive.start()
+        self.addCleanup(empresas_drive.stop)
         os.environ["GOOGLE_DRIVE_PASTA_RELATORIOS_ID"] = "pasta-teste"
         self.app = Flask(__name__)
         self.app.config.update(

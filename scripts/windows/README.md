@@ -87,8 +87,9 @@ Para repetir apos uma automacao ocupada ou falha de rede, use **Re-run jobs**.
 3. Confere os status novamente e para os servicos para uma breve manutencao.
 4. Guarda os arquivos substituidos e o build anterior em uma pasta
    `D:\Projetos\monitor-backup-DATA-COMMIT`.
-5. Copia somente arquivos versionados do frontend/backend, instala dependencias
-   e copia o build pronto. Nao roda a automacao, nao envia mensagens e nao consulta ODBC.
+5. Copia somente arquivos versionados do frontend, do backend e do pacote
+   `config/`, instala dependencias e copia o build pronto. Nao roda a automacao,
+   nao envia mensagens e nao consulta ODBC.
 6. Inicia os servicos e verifica a pagina e o status autenticado das APIs.
 7. Se falhar, tenta recuperar o codigo/build anterior e reinstalar as dependencias.
    Falhas de rede/disco/permissao tambem podem impedir a recuperacao: nesse caso,

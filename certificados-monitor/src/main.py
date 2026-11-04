@@ -2,6 +2,11 @@ import os
 import sys
 # DON'T CHANGE THIS !!!
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
+RAIZ_REPOSITORIO = os.path.dirname(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+)
+if RAIZ_REPOSITORIO not in sys.path:
+    sys.path.insert(0, RAIZ_REPOSITORIO)
 
 from flask import Flask, send_from_directory
 from flask_cors import CORS
@@ -11,6 +16,13 @@ from pathlib import Path
 # Carrega a configuracao antes de importar modulos que resolvem caminhos de storage.
 load_dotenv(Path(__file__).resolve().parents[2] / '.env')
 load_dotenv()
+
+from config import ErroConfiguracao, carregar_configuracao
+
+try:
+    configuracao = carregar_configuracao()
+except ErroConfiguracao as erro:
+    raise SystemExit(str(erro)) from erro
 
 from src.models.user import db
 from src.models.certificado import Certificado
@@ -27,14 +39,14 @@ from src.services.agendador_automacao import agendador_automacao
 from src.caminhos import garantir_pasta, pasta_storage
 
 app = Flask(__name__, static_folder=os.path.join(os.path.dirname(__file__), 'static'))
-modo_debug = os.getenv('FLASK_DEBUG', 'false').strip().lower() in {'1', 'true', 'sim', 'yes'}
+modo_debug = configuracao.debug
 app.config['DEBUG'] = modo_debug
-app.config['SECRET_KEY'] = os.getenv('SECRET_KEY', 'altere-esta-chave-no-env')
+app.config['SECRET_KEY'] = configuracao.secret_key
 CORS(
     app,
     resources={
         r"/api/*": {
-            "origins": os.getenv("FRONTEND_ORIGIN", "http://localhost:3000")
+            "origins": configuracao.frontend_origem
         }
     },
 )
@@ -82,6 +94,8 @@ def serve(path):
 
 
 if __name__ == '__main__':
-    host = os.getenv('FLASK_HOST', '127.0.0.1').strip() or '127.0.0.1'
-    porta = int(os.getenv('FLASK_PORT', '5000'))
-    app.run(host=host, port=porta, debug=modo_debug)
+    app.run(
+        host=configuracao.host,
+        port=configuracao.porta,
+        debug=modo_debug,
+    )

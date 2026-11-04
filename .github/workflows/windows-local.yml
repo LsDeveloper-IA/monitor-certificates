@@ -36,9 +36,14 @@ jobs:
           cache: npm
           cache-dependency-path: certificados-frontend/package-lock.json
       - name: Dependencias Python
-        run: python -m pip install -r certificados-monitor/requirements.txt
-      - name: Testes do backend (sem mensagens ou banco externo)
-        working-directory: certificados-monitor
+        run: |
+          python -m pip install -e .
+          python -m pip install -e automacoes/sieg_comum
+          python -m pip install -r certificados-monitor/requirements.txt
+          python -m pip install -r automacoes/sieg/requirements.txt
+      - name: Chromium do Playwright
+        run: python -m playwright install chromium
+      - name: Testes do backend e das automacoes
         run: python -m pytest -q
       - name: Testes do instalador
         shell: pwsh

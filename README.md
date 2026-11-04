@@ -15,8 +15,12 @@ compartilhado entre elas.
 | `automacoes/auto_nc/` | Identifica empresas ativas sem certificado e gera o relatório correspondente. |
 | `automacoes/conthabil/` | Renova certificados no portal Conthabil usando os arquivos do Google Drive. |
 | `automacoes/sieg_comum/` | Login, navegação e cliente do Drive usados pelas automações do SIEG. |
+| `config/` | Validação central das variáveis de ambiente do painel. |
 | `scripts/` | Inicialização do ambiente local e execução dos testes. |
 | `storage/` | Dados gerados: banco, logs, relatórios, planilhas e credenciais. Fora do Git. |
+
+`pyproject.toml` define os pacotes instaláveis e a configuração única do pytest.
+O código fica nas pastas acima; `storage/` contém somente dados de execução.
 
 ## Fluxo das automações
 
@@ -37,6 +41,10 @@ simultâneas na mesma conta do SIEG.
 Requisitos: Python, Node.js, npm e Chromium do Playwright.
 
 ```powershell
+# Da raiz do repositorio: pacote do motor e pacote compartilhado do SIEG
+python -m pip install -e .
+python -m pip install -e automacoes/sieg_comum
+
 cd certificados-monitor
 python -m pip install -r requirements.txt
 
@@ -91,27 +99,22 @@ também é encerrado.
 
 ## Testes
 
-Execute todas as suites de uma vez a partir da raiz:
+Execute toda a suite com um único pytest a partir da raiz:
 
 ```powershell
 .\scripts\test.ps1
 ```
 
-Ou rode cada suite isoladamente:
+O script usa o `pyproject.toml` e cobre backend, `automacoes/sieg`,
+`automacoes/auto_nc` e `automacoes/sieg_comum`.
+
+Para rodar um recorte específico:
 
 ```powershell
-cd certificados-monitor
-python -X utf8 -m unittest discover -s tests
-
-cd ..\automacoes\sieg
-python -X utf8 -m unittest discover -s tests
-
-cd ..\auto_nc
-python -X utf8 -m unittest discover -s tests
-
-cd ..\..
-cd automacoes
-python -X utf8 -m unittest discover -s sieg_comum/tests
+python -m pytest certificados-monitor/tests -q
+python -m pytest automacoes/sieg/tests -q
+python -m pytest automacoes/auto_nc/tests -q
+python -m pytest automacoes/sieg_comum/tests -q
 ```
 
 Consulte o README de cada pasta para configuração e execução isolada.
