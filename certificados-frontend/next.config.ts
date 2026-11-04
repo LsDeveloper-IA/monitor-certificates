@@ -1,22 +1,52 @@
 import type { NextConfig } from "next";
 
-const nextConfig: NextConfig = {
-  async rewrites() {
-    return [
-      {
-        source: "/api/certificados/:path*",
-        destination: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/certificados/:path*`,
+const staticExport = process.env.NEXT_STATIC_EXPORT === "1";
+
+const nextConfig: NextConfig = staticExport
+  ? {
+      // Usado pelo pacote portatil: o Flask serve os arquivos gerados em out/.
+      output: "export",
+      trailingSlash: true,
+      images: { unoptimized: true },
+    }
+  : {
+      async rewrites() {
+        const backend = process.env.BACKEND_URL || "http://localhost:5000";
+        return [
+          {
+            source: "/api/certificados/:path*",
+            destination: `${backend}/api/certificados/:path*`,
+          },
+          {
+            source: "/api/users/:path*",
+            destination: `${backend}/api/users/:path*`,
+          },
+          {
+            source: "/api/relatorios/:path*",
+            destination: `${backend}/api/relatorios/:path*`,
+          },
+          {
+            source: "/api/automacao/:path*",
+            destination: `${backend}/api/automacao/:path*`,
+          },
+          {
+            source: "/api/notificacao/:path*",
+            destination: `${backend}/api/notificacao/:path*`,
+          },
+          {
+            source: "/api/historico/:path*",
+            destination: `${backend}/api/historico/:path*`,
+          },
+          {
+            source: "/api/whatscontabil/:path*",
+            destination: `${backend}/api/whatscontabil/:path*`,
+          },
+          {
+            source: "/api/configuracao/:path*",
+            destination: `${backend}/api/configuracao/:path*`,
+          },
+        ];
       },
-      {
-        source: "/api/users/:path*",
-        destination: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/users/:path*`,
-      },
-      {
-        source: "/api/relatorios/:path*",
-        destination: `${process.env.BACKEND_URL || "http://localhost:5000"}/api/relatorios/:path*`,
-      },
-    ];
-  },
-};
+    };
 
 export default nextConfig;

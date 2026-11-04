@@ -5,13 +5,23 @@ import { Clock3, Paperclip, Save, X } from 'lucide-react';
 
 interface Registro { id: number; autor: string; texto: string; criado_em: string; editado_em?: string; imagens: number[] }
 
+const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
+
+function cabecalhosAdministrativos(): Record<string, string> {
+  const chave = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO) || '';
+  return chave ? { 'X-Admin-Key': chave } : {};
+}
+
 function ImagemHistorico({ id }: { id: number }) {
   const [url, setUrl] = useState('');
   const [erro, setErro] = useState(false);
   useEffect(() => {
     const controle = new AbortController();
     let objeto = '';
-    fetch(`/api/historico/imagens/${id}`, { signal: controle.signal })
+    fetch(`/api/historico/imagens/${id}`, {
+      signal: controle.signal,
+      headers: cabecalhosAdministrativos(),
+    })
       .then(async r => { if (!r.ok) throw new Error(); return r.blob(); })
       .then(blob => { objeto = URL.createObjectURL(blob); setUrl(objeto); })
       .catch(() => { if (!controle.signal.aborted) setErro(true); });
@@ -48,7 +58,7 @@ export default function CertificadoHistorico({ certificadoId, ativo }: { certifi
   }, []);
   const carregar = useCallback(async (p: number, sinal?: AbortSignal) => {
     const r = await fetch(`/api/historico/certificados/${certificadoId}?pagina=${p}`, {
-      signal: sinal, cache: 'no-store',
+      signal: sinal, cache: 'no-store', headers: cabecalhosAdministrativos(),
     });
     const dados = await r.json().catch(() => ({}));
     if (!r.ok) throw new Error(dados.erro || 'Não foi possível carregar o histórico. Tente novamente.');
@@ -69,7 +79,15 @@ export default function CertificadoHistorico({ certificadoId, ativo }: { certifi
     setAlterando(true); setErroAlteracao(''); setSucesso('');
     try {
       const r = await fetch(`/api/historico/registros/${id}`, { method: metodo,
-        ...(metodo === 'PUT' ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ texto: edicao }) } : {}) });
+        ...(metodo === 'PUT'
+          ? {
+              headers: {
+                'Content-Type': 'application/json',
+                ...cabecalhosAdministrativos(),
+              },
+              body: JSON.stringify({ texto: edicao }),
+            }
+          : { headers: cabecalhosAdministrativos() }) });
       const resposta = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(resposta.erro || 'Não foi possível alterar. Tente novamente.');
       setEditando(null); setExcluindo(null);
@@ -88,7 +106,11 @@ export default function CertificadoHistorico({ certificadoId, ativo }: { certifi
     dados.append('autor', autor.trim()); dados.append('texto', texto.trim());
     arquivos.forEach(arquivo => dados.append('imagens', arquivo));
     try {
-      const r = await fetch(`/api/historico/certificados/${certificadoId}`, { method: 'POST', body: dados });
+      const r = await fetch(`/api/historico/certificados/${certificadoId}`, {
+        method: 'POST',
+        body: dados,
+        headers: cabecalhosAdministrativos(),
+      });
       const resposta = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(resposta.erro || 'Não foi possível salvar. Sua observação foi mantida para tentar novamente.');
       try { localStorage.setItem('historico:autor', autor.trim()); } catch { /* O registro já foi salvo no servidor. */ }

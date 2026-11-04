@@ -1,12 +1,11 @@
-import hmac
 import io
-import os
 from datetime import datetime, timezone
 
 from flask import Blueprint, jsonify, request, send_file
 from PIL import Image, UnidentifiedImageError
 from sqlalchemy.exc import SQLAlchemyError
 from src.models.certificado import Certificado, db
+from src.seguranca import acesso_historico_permitido
 
 historico_bp = Blueprint('historico', __name__)
 
@@ -37,8 +36,7 @@ class ImagemRegistro(db.Model):
 
 @historico_bp.before_request
 def proteger():
-    chave = os.getenv('AUTOMACAO_EXECUTION_KEY', '').strip()
-    if request.remote_addr not in {'127.0.0.1', '::1'} or not chave or not hmac.compare_digest(chave.encode(), request.headers.get('X-Automation-Key', '').encode()):
+    if not acesso_historico_permitido():
         return jsonify(erro='Acesso nao autorizado'), 401
     if request.content_length and request.content_length > 16 * 1024 * 1024:
         return jsonify(erro='Os anexos excedem o limite de 15 MB.'), 413

@@ -97,6 +97,30 @@ abre o frontend em `http://localhost:3000`. Os logs do backend ficam em
 `storage/runtime/`. Ao encerrar o Next.js, o processo Flask aberto pelo script
 também é encerrado.
 
+## Pacote portátil (Windows)
+
+Para gerar uma pasta independente, com um único `.exe` que serve o backend
+Flask e o frontend Next.js exportado (sem Node.js na máquina de destino):
+
+```powershell
+.\scripts\portable\build.ps1
+```
+
+O resultado fica em `monitor-certificates/`, com `MonitorCertificados.exe`,
+`.env.example`, `LEIA-ME.txt` e `storage/`. A pasta é ignorada pelo Git; o
+executável é gerado novamente a cada build.
+
+Para validar o executável em uma pasta temporária, sem abrir o navegador:
+
+```powershell
+.\scripts\portable\testar-pacote.ps1
+```
+
+As automações Playwright não são empacotadas. Para executá-las, a máquina
+precisa de Python, das dependências de `automacoes/*/requirements.txt` e do
+Chromium do Playwright, além da pasta `automacoes/` ao lado do executável.
+Veja `scripts/portable/README.md` para os detalhes.
+
 ## Testes
 
 Execute toda a suite com um único pytest a partir da raiz:

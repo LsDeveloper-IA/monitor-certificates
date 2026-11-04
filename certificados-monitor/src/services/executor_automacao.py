@@ -1,6 +1,7 @@
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,7 +12,7 @@ from pathlib import Path
 
 from dotenv import dotenv_values
 
-from src.caminhos import pasta_storage
+from src.caminhos import pasta_aplicacao, pasta_storage
 
 
 class ExecutorAutomacao:
@@ -126,7 +127,29 @@ class ExecutorAutomacao:
 
     @property
     def arquivo_env(self):
-        return Path(__file__).resolve().parents[2] / ".env"
+        return pasta_aplicacao() / ".env"
+
+    @staticmethod
+    def _python_para_motores():
+        """Escolhe o interpretador que executara os scripts das automacoes.
+
+        No modo congelado ``sys.executable`` e o proprio painel, por isso o
+        caminho do Python pode ser informado em ``MONITOR_PYTHON_EXE`` ou
+        localizado no PATH. Em desenvolvimento usamos o interpretador atual.
+        """
+        if not getattr(sys, "frozen", False):
+            return sys.executable
+
+        configurado = os.getenv("MONITOR_PYTHON_EXE", "").strip()
+        if configurado:
+            caminho = Path(configurado).expanduser()
+            if caminho.is_file():
+                return str(caminho)
+            encontrado = shutil.which(configurado)
+            if encontrado:
+                return encontrado
+
+        return shutil.which("python") or shutil.which("python3") or shutil.which("py")
 
     def _montar_ambiente_execucao(
         self,
@@ -142,6 +165,22 @@ class ExecutorAutomacao:
             for chave, valor in configuracao_atual.items()
             if valor is not None
         })
+        # O pacote portatil escolhe uma porta livre em tempo de execucao. Esses
+        # valores ja foram definidos no ambiente antes de importar o backend e
+        # nao podem ser sobrescritos pelo que esta gravado no .env.
+        for chave in (
+            "API_MONITOR_URL",
+            "FRONTEND_ORIGIN",
+            "STORAGE_DIR",
+            "MONITOR_APP_DIR",
+            "MONITOR_WEB_DIR",
+            "MONITOR_PYTHON_EXE",
+            "AUTOMACAO_EXECUTION_KEY",
+            "AUTOMACAO_ADMIN_KEY",
+            "INTEGRACAO_API_KEY",
+        ):
+            if os.environ.get(chave):
+                ambiente[chave] = os.environ[chave]
         ambiente.update(
             {
                 "MODO_AUTOMATICO": "sim",
@@ -360,6 +399,15 @@ class ExecutorAutomacao:
                     identificador, f"ERRO: motor não encontrado em {pasta}"
                 )
                 return -1
+            python_executavel = self._python_para_motores()
+            if not python_executavel:
+                self._registrar_motor(
+                    identificador,
+                    "ERRO: Python nao encontrado. Instale o Python e as "
+                    "dependencias das automacoes ou configure "
+                    "MONITOR_PYTHON_EXE no .env.",
+                )
+                return -1
             ambiente_motor = ambiente.copy()
             arquivo_env_motor = pasta / ".env"
             if arquivo_env_motor.exists():
@@ -376,7 +424,7 @@ class ExecutorAutomacao:
                 flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
             processo = subprocess.Popen(
-                [sys.executable, "main.py"],
+                [python_executavel, "main.py"],
                 cwd=pasta,
                 env=ambiente_motor,
                 stdout=subprocess.PIPE,
@@ -532,13 +580,9 @@ executor_automacao = ExecutorAutomacao()
 executor_sieg_automacao = ExecutorAutomacao(
     arquivo_historico=pasta_storage() / "runtime" / "historico_sieg.json",
     pastas_motores={
-        "certificados_vencidos": Path(__file__).resolve().parents[3]
-        / "automacoes"
-        / "sieg",
-        "auto_nc": Path(__file__).resolve().parents[3] / "automacoes" / "auto_nc",
-        "conthabil": Path(__file__).resolve().parents[3]
-        / "automacoes"
-        / "conthabil",
+        "certificados_vencidos": pasta_aplicacao() / "automacoes" / "sieg",
+        "auto_nc": pasta_aplicacao() / "automacoes" / "auto_nc",
+        "conthabil": pasta_aplicacao() / "automacoes" / "conthabil",
     },
     nomes_motores={
         "certificados_vencidos": "Certificados vencidos (SIEG)",

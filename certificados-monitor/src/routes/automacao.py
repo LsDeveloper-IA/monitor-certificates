@@ -1,4 +1,3 @@
-import hmac
 import os
 from datetime import datetime
 from pathlib import Path
@@ -7,6 +6,7 @@ from flask import Blueprint, jsonify, request
 from sqlalchemy import text
 
 from src.models.user import db
+from src.seguranca import acesso_administrativo_permitido
 from src.services.executor_automacao import executor_automacao, executor_sieg_automacao
 from src.services.agendador_automacao import agendador_automacao
 from src.caminhos import pasta_segredos
@@ -22,11 +22,7 @@ PASTA_SEGREDOS = pasta_segredos()
 
 
 def _acesso_permitido():
-    if request.remote_addr not in {"127.0.0.1", "::1"}:
-        return False
-    esperada = os.getenv("AUTOMACAO_EXECUTION_KEY", "").strip()
-    recebida = request.headers.get("X-Automation-Key", "").strip()
-    return bool(esperada) and hmac.compare_digest(esperada, recebida)
+    return acesso_administrativo_permitido()
 
 
 @automacao_bp.before_request

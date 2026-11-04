@@ -1,7 +1,5 @@
-import hmac
-import os
-
 from flask import Blueprint, request, jsonify
+from src.seguranca import acesso_administrativo_permitido
 from src.services.notificacao import notificacao_service
 from src.services.agendador import agendador_service
 
@@ -9,11 +7,7 @@ notificacao_bp = Blueprint('notificacao', __name__)
 
 
 def _acesso_permitido():
-    if request.remote_addr not in {"127.0.0.1", "::1"}:
-        return False
-    esperada = os.getenv("AUTOMACAO_EXECUTION_KEY", "").strip()
-    recebida = request.headers.get("X-Automation-Key", "").strip()
-    return bool(esperada) and hmac.compare_digest(esperada, recebida)
+    return acesso_administrativo_permitido()
 
 
 @notificacao_bp.before_request

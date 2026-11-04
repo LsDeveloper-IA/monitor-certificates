@@ -139,8 +139,18 @@ export default function ConfigModal({
 
   useEffect(() => {
     if (!isOpen) return;
-    const chaveSalva = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO);
-    if (chaveSalva) setChaveAdmin(chaveSalva);
+    const lerChaveSalva = () => {
+      const chaveSalva = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO);
+      if (chaveSalva) setChaveAdmin(chaveSalva);
+    };
+    // O componente AdminKeyBootstrap preenche a chave logo apos abrir o
+    // painel; escutar o evento evita que a janela de Configuracoes abra
+    // vazia quando o usuario clica muito rapido.
+    lerChaveSalva();
+    window.addEventListener(EVENTO_AUTOMACAO_ALTERADA, lerChaveSalva);
+    return () => {
+      window.removeEventListener(EVENTO_AUTOMACAO_ALTERADA, lerChaveSalva);
+    };
   }, [isOpen]);
 
   useEffect(() => {

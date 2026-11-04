@@ -1,9 +1,9 @@
-import hmac
 import os
 from pathlib import Path
 
 from flask import Blueprint, jsonify, request
 
+from src.seguranca import acesso_administrativo_permitido
 from automation_engine.integracoes.whatscontabil import (
     ErroWhatsContabil,
     listar_conexoes,
@@ -17,11 +17,7 @@ PASTA_BACKEND = Path(__file__).resolve().parents[2]
 
 
 def _acesso_permitido():
-    if request.remote_addr not in {"127.0.0.1", "::1"}:
-        return False
-    esperada = os.getenv("AUTOMACAO_EXECUTION_KEY", "").strip()
-    recebida = request.headers.get("X-Automation-Key", "").strip()
-    return bool(esperada) and hmac.compare_digest(esperada, recebida)
+    return acesso_administrativo_permitido()
 
 
 @whatscontabil_bp.before_request

@@ -1,33 +1,25 @@
-import hmac
-import os
-
 from flask import Blueprint, request, jsonify, send_file
 from datetime import datetime, date, timedelta, timezone
 from src.models.certificado import db, Certificado
+from src.seguranca import (
+    acesso_escrita_certificados_permitido,
+    chave_integracao_configurada,
+)
 from src.services.sincronizacao import sincronizar_certificados
 from src.services.exportacao_excel import COLUNAS, gerar_excel_certificados
 
 certificado_bp = Blueprint('certificado', __name__)
 
 
-def chave_integracao_valida():
-    chave_configurada = os.getenv('INTEGRACAO_API_KEY', '').strip()
-    chave_recebida = request.headers.get('X-API-Key', '').strip()
-    if not chave_configurada:
-        return None
-    return hmac.compare_digest(chave_configurada, chave_recebida)
-
-
 @certificado_bp.before_request
 def proteger_escritas():
     if request.method not in {'POST', 'PUT', 'PATCH', 'DELETE'}:
         return None
-    autenticado = chave_integracao_valida()
-    if autenticado is None:
+    if acesso_escrita_certificados_permitido():
+        return None
+    if not chave_integracao_configurada():
         return jsonify({'erro': 'Integracao nao configurada no servidor'}), 503
-    if not autenticado:
-        return jsonify({'erro': 'Chave de integracao invalida'}), 401
-    return None
+    return jsonify({'erro': 'Chave de integracao invalida'}), 401
 
 
 @certificado_bp.route('/certificados/sincronizar', methods=['POST'])

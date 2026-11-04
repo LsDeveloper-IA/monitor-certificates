@@ -16,7 +16,7 @@ from automation_engine.integracoes.google_drive import (
 )
 from src.models.empresa_relatorio import EmpresaRelatorio, RelatorioDriveProcessado
 from src.models.user import db
-from src.caminhos import pasta_segredos, pasta_storage
+from src.caminhos import pasta_aplicacao, pasta_segredos, pasta_storage
 
 
 relatorio_bp = Blueprint("relatorio", __name__)
@@ -276,12 +276,17 @@ def _pasta_com_credenciais():
     if configurada:
         pasta_configurada = Path(configurada).expanduser()
         if not pasta_configurada.is_absolute():
-            pasta_configurada = Path(__file__).resolve().parents[2] / pasta_configurada
+            pasta_configurada = pasta_aplicacao() / pasta_configurada
         return pasta_configurada.resolve()
 
     raiz = Path(__file__).resolve().parents[2]
     segredos = pasta_segredos()
-    candidatas = (segredos, raiz / "automation_engine", raiz, raiz.parent)
+    candidatas = (
+        segredos,
+        pasta_aplicacao() / "automation_engine",
+        raiz / "automation_engine",
+        raiz,
+    )
     return next(
         (pasta for pasta in candidatas if (pasta / "credentials.json").exists()),
         segredos,

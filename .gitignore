@@ -47,6 +47,9 @@ build/
 dist/
 *.egg-info/
 
+# Pacote portatil gerado por scripts/portable/build.ps1
+monitor-certificates/
+
 # Dados gerados em producao (unica pasta que cresce fora do git)
 storage/*
 !storage/.gitkeep

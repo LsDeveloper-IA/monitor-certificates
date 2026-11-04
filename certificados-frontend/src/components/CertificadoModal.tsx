@@ -4,6 +4,13 @@ import { useEffect, useState } from 'react';
 import { X, Save, Building, User } from 'lucide-react';
 import CertificadoHistorico from './CertificadoHistorico';
 
+const CHAVE_ADMIN_SESSAO = 'certificados-monitor:chave-admin';
+
+function cabecalhosAdministrativos(): Record<string, string> {
+  const chave = window.sessionStorage.getItem(CHAVE_ADMIN_SESSAO) || '';
+  return chave ? { 'X-Admin-Key': chave } : {};
+}
+
 interface CertificadoModalProps {
   isOpen: boolean;
   onClose: () => void;
@@ -103,6 +110,7 @@ export default function CertificadoModal({ isOpen, onClose, onSave, certificado,
         method,
         headers: {
           'Content-Type': 'application/json',
+          ...cabecalhosAdministrativos(),
         },
         body: JSON.stringify(formData),
       });
