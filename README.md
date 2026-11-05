@@ -107,8 +107,9 @@ Flask e o frontend Next.js exportado (sem Node.js na máquina de destino):
 ```
 
 O resultado fica em `monitor-certificates/`, com `MonitorCertificados.exe`,
-`.env.example`, `LEIA-ME.txt` e `storage/`. A pasta é ignorada pelo Git; o
-executável é gerado novamente a cada build.
+`.env.example`, `LEIA-ME.txt` e `storage/`. A pasta e versionada no Git, incluindo
+o executavel, para que a versao pronta para uso acompanhe o repositorio. O
+arquivo `.env` e os dados gerados em `storage/` continuam ignorados.
 
 Para validar o executável em uma pasta temporária, sem abrir o navegador:
 

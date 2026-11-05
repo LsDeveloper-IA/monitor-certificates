@@ -136,6 +136,33 @@ try {
     if ($status.Status -ne 200) { Falhar "GET /api/automacao/status retornou $($status.Status)." }
     Write-Host "OK  rota administrativa autenticada"
 
+    $proxy = Obter-Json "$endereco/api/automacao/status" @{ 'X-Local-Proxy' = 'local' }
+    if ($proxy.Status -ne 200) {
+        Falhar "GET /api/automacao/status com X-Local-Proxy retornou $($proxy.Status)."
+    }
+    Write-Host "OK  proxy local autenticado"
+
+    $statusSemChave = 0
+    try {
+        $semChave = Invoke-WebRequest `
+            -Uri "$endereco/api/automacao/status" `
+            -UseBasicParsing `
+            -TimeoutSec 20
+        $statusSemChave = [int]$semChave.StatusCode
+    }
+    catch {
+        if ($_.Exception.Response) {
+            $statusSemChave = [int]$_.Exception.Response.StatusCode
+        }
+        else {
+            throw
+        }
+    }
+    if ($statusSemChave -ne 401) {
+        Falhar "automacao sem chave deveria retornar 401, retornou $statusSemChave."
+    }
+    Write-Host "OK  automacao sem chave bloqueada (401)"
+
     $corpo = @{
         nome_empresa = 'Empresa Teste Portatil'
         cpf_cnpj     = '12345678000190'
@@ -185,9 +212,15 @@ try {
 }
 finally {
     if ($Processo -and -not $Processo.HasExited) {
-        Stop-Process -Id $Processo.Id -Force -ErrorAction SilentlyContinue
+        taskkill /PID $Processo.Id /T /F 2>$null | Out-Null
         Start-Sleep -Milliseconds 800
     }
+    # O executavel onefile cria um processo filho; encerrar apenas o pai pode
+    # deixar o servidor rodando e ocupando a porta nas proximas execucoes.
+    $alvo = Join-Path $Pasta 'MonitorCertificados.exe'
+    Get-Process MonitorCertificados -ErrorAction SilentlyContinue |
+        Where-Object { $_.Path -eq $alvo } |
+        Stop-Process -Force -ErrorAction SilentlyContinue
     if (-not $Keep) {
         Remove-Item $Pasta -Recurse -Force -ErrorAction SilentlyContinue
     }

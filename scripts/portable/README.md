@@ -21,14 +21,19 @@ Na raiz do repositorio:
 Etapas executadas pelo script:
 
 1. roda a suite de testes (use `-SkipTests` para pular);
-2. move temporariamente `certificados-frontend/src/app/api`, define
-   `NEXT_STATIC_EXPORT=1` e `NEXT_PUBLIC_BOOTSTRAP_CHAVE_ADMIN=1`, executa
-   `npm run build` e restaura a pasta no `finally`;
+2. move temporariamente `certificados-frontend/src/app/api`, remove o `.next`
+   anterior, define `NEXT_STATIC_EXPORT=1` e
+   `NEXT_PUBLIC_BOOTSTRAP_CHAVE_ADMIN=1`, executa `npm run build` e restaura a
+   pasta no `finally`;
 3. copia `certificados-frontend/out/` para `build/portable/web`;
 4. empacota `scripts/portable/entrypoint.py` com o spec
    `MonitorCertificados.spec`, incluindo a pasta `web` e o `.env.example`;
 5. monta `monitor-certificates/` com o exe, o modelo de `.env`, o
    `LEIA-ME.txt` e uma pasta `storage/` vazia.
+
+A pasta `monitor-certificates/` e versionada no Git, incluindo o executavel,
+para que a versao pronta para uso acompanhe o repositorio. O `.env` e os dados
+gerados em `storage/` continuam ignorados.
 
 Opcoes uteis:
 
@@ -44,8 +49,8 @@ Opcoes uteis:
 
 O script de fumaca copia o exe para uma pasta temporaria, inicia o servidor,
 valida a pagina inicial, a geracao do `.env`, a chave administrativa local,
-leitura/escrita autenticada e o bloqueio de escrita sem chave. O navegador nao
-e aberto.
+leitura/escrita autenticada, o proxy local e o bloqueio de requisicoes sem
+chave. O navegador nao e aberto.
 
 ```powershell
 .\scripts\portable\testar-pacote.ps1

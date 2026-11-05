@@ -105,6 +105,10 @@ if (-not $SkipFrontend) {
         Move-Item -Path $PastaApi -Destination $BackupApi
     }
 
+    # Um .next gerado no modo servidor referencia paginas que nao existem mais
+    # no export estatico e faz o build falhar com PageNotFoundError.
+    Remove-SeExistir (Join-Path $Frontend '.next')
+
     try {
         $env:NEXT_STATIC_EXPORT = '1'
         $env:NEXT_PUBLIC_BOOTSTRAP_CHAVE_ADMIN = '1'
@@ -199,6 +203,9 @@ Write-Etapa "Montando a pasta $Pacote"
 
 New-Item -ItemType Directory -Force -Path $Pacote | Out-Null
 New-Item -ItemType Directory -Force -Path (Join-Path $Pacote 'storage') | Out-Null
+
+# Mantem a pasta storage/ no Git mesmo vazia; os dados gerados sao ignorados.
+Set-Content -Path (Join-Path $Pacote 'storage\.gitkeep') -Value '' -Encoding UTF8
 
 Copy-Item -Path $ExecutavelGerado -Destination (Join-Path $Pacote 'MonitorCertificados.exe') -Force
 Copy-Item -Path $ModeloEnv -Destination (Join-Path $Pacote '.env.example') -Force
