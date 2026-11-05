@@ -1,7 +1,11 @@
 import { timingSafeEqual } from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
-const backendUrl = process.env.BACKEND_URL || 'http://localhost:5000';
+// No Windows, "localhost" pode resolver para ::1 enquanto o Flask escuta em
+// 127.0.0.1. Normalizar para IPv4 evita 500 (ECONNREFUSED) no proxy.
+const backendUrl = (process.env.BACKEND_URL || 'http://127.0.0.1:5000')
+  .replace('://localhost', '://127.0.0.1')
+  .replace(/\/+$/, '');
 
 function chavesIguais(recebida: string, esperada: string) {
   const a = Buffer.from(recebida);

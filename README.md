@@ -147,6 +147,27 @@ A versao atual dispensa esse alinhamento manual: o proxy do Next se identifica
 ao Flask com `X-Local-Proxy: local`, aceito somente quando a conexao vem da
 propria maquina.
 
+## Internal Server Error ao abrir o painel
+
+No servidor, rode o diagnostico (nao altera nada e oculta chaves):
+
+```powershell
+.\scripts\windows\diagnosticar-servidor.ps1
+```
+
+Ele testa a pagina inicial pelo Next, a API pelo Next e a API direto no Flask,
+mostrando qual camada esta falhando e os logs recentes.
+
+- **Pagina inicial com 500:** o build do frontend esta incompleto ou foi gerado
+  com outro conjunto de dependencias. Rode
+  `.\scripts\windows\reparar-frontend.ps1`. Ele preserva `.env.local` e o banco,
+  refaz `npm ci` + `npm run build` e restaura o build anterior se falhar.
+- **Pagina abre, mas a API falha:** confira o servico `MonitorCertificados` e o
+  `BACKEND_URL`. Use `http://127.0.0.1:5000`, nao `localhost`, porque no Windows
+  `localhost` pode resolver para IPv6 enquanto o Flask escuta em IPv4.
+- **Nunca rode `scripts/portable/build.ps1` na pasta de producao:** ele gera um
+  export estatico e deixa o `.next` incompativel com o `next start`.
+
 ## Testes
 
 Execute toda a suite com um único pytest a partir da raiz:

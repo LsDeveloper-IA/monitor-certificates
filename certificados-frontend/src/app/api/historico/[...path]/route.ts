@@ -12,15 +12,23 @@ async function proxy(request: NextRequest, context: { params: Promise<{ path: st
   if (request.method !== 'GET' && (request.headers.get('sec-fetch-site') === 'cross-site' || !mesmaOrigem)) {
     return NextResponse.json({ erro: 'Abra o painel para registrar a observacao.' }, { status: 403 });
   }
-  const interna = process.env.AUTOMACAO_EXECUTION_KEY;
+  const interna = (process.env.AUTOMACAO_EXECUTION_KEY || '').trim();
   if (!interna) return NextResponse.json({ erro: 'Integracao nao configurada.' }, { status: 503 });
   if (Number(request.headers.get('content-length') || 0) > 16 * 1024 * 1024) return NextResponse.json({ erro: 'Anexos excedem 15 MB.' }, { status: 413 });
   try {
-    const headers: Record<string, string> = { 'X-Automation-Key': interna };
+    const headers: Record<string, string> = {
+      'X-Automation-Key': interna,
+      'X-Local-Proxy': 'local',
+    };
     if (['POST', 'PUT'].includes(request.method)) headers['Content-Type'] = request.headers.get('content-type') || '';
     const body = ['POST', 'PUT'].includes(request.method) ? await request.arrayBuffer() : undefined;
     if (body && body.byteLength > 16 * 1024 * 1024) return NextResponse.json({ erro: 'Anexos excedem 15 MB.' }, { status: 413 });
-    const r = await fetch(`${process.env.BACKEND_URL || 'http://127.0.0.1:5000'}/api/historico/${caminho}${request.nextUrl.search}`, { method: request.method, headers, body, cache: 'no-store' });
+    // No Windows, "localhost" pode resolver para ::1 enquanto o Flask escuta
+    // em 127.0.0.1. Normalizar para IPv4 evita 500 (ECONNREFUSED) no proxy.
+    const backend = (process.env.BACKEND_URL || 'http://127.0.0.1:5000')
+      .replace('://localhost', '://127.0.0.1')
+      .replace(/\/+$/, '');
+    const r = await fetch(`${backend}/api/historico/${caminho}${request.nextUrl.search}`, { method: request.method, headers, body, cache: 'no-store' });
     return new NextResponse(await r.arrayBuffer(), { status: r.status, headers: { 'Content-Type': r.headers.get('content-type') || 'application/json', 'Cache-Control': 'private, no-store', 'X-Content-Type-Options': 'nosniff' } });
   } catch { return NextResponse.json({ erro: 'Nao foi possivel conectar ao servidor. Tente novamente.' }, { status: 502 }); }
 }

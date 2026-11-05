@@ -122,6 +122,32 @@ diferem, copie o valor do backend para `certificados-frontend\.env.local` e
 reinicie o `MonitorFrontend`. A partir da versao com `X-Local-Proxy`, o
 alinhamento manual deixa de ser necessario.
 
+## Erro "Internal Server Error" ao abrir o painel
+
+Execute no servidor:
+
+```powershell
+.\scripts\windows\diagnosticar-servidor.ps1
+```
+
+O diagnostico mostra os servicos, as portas 3000/5000, testa a pagina inicial,
+a API pelo Next e a API direto no Flask, e lista os logs recentes sem exibir
+chaves. Se a pagina inicial responder 500, reconstrua o frontend:
+
+```powershell
+.\scripts\windows\reparar-frontend.ps1
+```
+
+Ele para o `MonitorFrontend`, guarda `.next` e `node_modules` em
+`D:\Projetos\monitor-backup-frontend-DATA`, executa `npm ci` e `npm run build`,
+inicia o servico e confirma a pagina em `http://127.0.0.1:3000`. Em caso de
+falha, restaura o backup automaticamente. O script nao altera `.env`,
+`.env.local`, banco ou `storage`.
+
+O build usa `BACKEND_URL=http://127.0.0.1:5000`. Evite `localhost`: no Windows
+ele pode resolver para IPv6 (`::1`) enquanto o Flask escuta em IPv4, fazendo o
+proxy devolver 500.
+
 ## Validacao local, sem deploy
 
 ```powershell

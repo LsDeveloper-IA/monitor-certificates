@@ -45,6 +45,11 @@ Opcoes uteis:
 .\scripts\portable\build.ps1 -SkipTests -SkipFrontend -SkipPyInstaller
 ```
 
+Nao execute este script dentro da instalacao de producao
+(`D:\Projetos\monitor-certificates`). O build estatico deixa o `.next`
+incompativel com o `next start` usado pelo servico `MonitorFrontend`. Para
+reparar o painel do servidor use `scripts\windows\reparar-frontend.ps1`.
+
 ## Como validar
 
 O script de fumaca copia o exe para uma pasta temporaria, inicia o servidor,

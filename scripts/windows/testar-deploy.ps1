@@ -28,7 +28,7 @@ foreach ($path in @('certificados-monitor/src/main.py', 'certificados-monitor/re
     if (-not (Test-DeployablePath $path)) { throw "Arquivo publico rejeitado: $path" }
     $null = Get-SafeChildPath $PSScriptRoot $path
 }
-foreach ($file in @('atualizar.ps1', 'Deploy.Helpers.psm1', 'testar-deploy.ps1', 'diagnosticar-acesso-automacao.ps1')) {
+foreach ($file in @('atualizar.ps1', 'Deploy.Helpers.psm1', 'testar-deploy.ps1', 'diagnosticar-acesso-automacao.ps1', 'diagnosticar-servidor.ps1', 'reparar-frontend.ps1')) {
     $parseTokens = $null
     $parseErrors = $null
     $null = [Management.Automation.Language.Parser]::ParseFile((Join-Path $PSScriptRoot $file), [ref]$parseTokens, [ref]$parseErrors)
