@@ -23,6 +23,7 @@ from flask import request
 
 ENDERECOS_LOCAIS = {"127.0.0.1", "::1", "localhost"}
 HOSTS_LOCAIS = {"127.0.0.1", "::1", "localhost"}
+TOKEN_PROXY_LOCAL = "local"
 
 
 def _valor_configurado(nome: str) -> str:
@@ -108,18 +109,42 @@ def chave_integracao_valida() -> bool:
     )
 
 
+def token_proxy_local_valido() -> bool:
+    """Autoriza o proxy do painel executado na mesma maquina.
+
+    O Next encaminha as chamadas do navegador para o Flask em ``127.0.0.1``.
+    Esse token nao substitui as chaves das integracoes: ele apenas dispensa
+    manter ``AUTOMACAO_EXECUTION_KEY`` identica nos dois processos quando
+    frontend e backend estao na mesma maquina. Requisicoes externas continuam
+    bloqueadas por ``requisicao_local``.
+    """
+    return (
+        requisicao_local()
+        and request.headers.get("X-Local-Proxy", "").strip()
+        == TOKEN_PROXY_LOCAL
+    )
+
+
 def acesso_administrativo_permitido() -> bool:
     """Regra das rotas de automacao, notificacao e WhatsContabil."""
     if not requisicao_local():
         return False
-    return chave_execucao_valida() or chave_admin_valida()
+    return (
+        token_proxy_local_valido()
+        or chave_execucao_valida()
+        or chave_admin_valida()
+    )
 
 
 def acesso_historico_permitido() -> bool:
-    """Historico aceita a chave interna ou a chave do painel."""
+    """Historico aceita a chave interna, a chave do painel ou o proxy local."""
     if not requisicao_local():
         return False
-    return chave_execucao_valida() or chave_admin_valida()
+    return (
+        token_proxy_local_valido()
+        or chave_execucao_valida()
+        or chave_admin_valida()
+    )
 
 
 def acesso_escrita_certificados_permitido() -> bool:

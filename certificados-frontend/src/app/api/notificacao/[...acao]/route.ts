@@ -41,7 +41,7 @@ async function encaminhar(
     );
   }
 
-  const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
+  const chaveBackend = (process.env.AUTOMACAO_EXECUTION_KEY || '').trim();
   if (!chaveBackend) {
     return NextResponse.json(
       { erro: 'Integracao de notificacoes nao configurada' },
@@ -56,6 +56,7 @@ async function encaminhar(
     headers: {
       'Content-Type': 'application/json',
       'X-Automation-Key': chaveBackend,
+      'X-Local-Proxy': 'local',
     },
     body: request.method === 'GET' ? undefined : await request.text(),
     cache: 'no-store',

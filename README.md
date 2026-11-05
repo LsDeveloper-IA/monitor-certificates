@@ -121,6 +121,31 @@ precisa de Python, das dependências de `automacoes/*/requirements.txt` e do
 Chromium do Playwright, além da pasta `automacoes/` ao lado do executável.
 Veja `scripts/portable/README.md` para os detalhes.
 
+## Acesso nao autorizado ao iniciar automacoes
+
+No servidor Windows, o painel (Next na porta 3000) encaminha as automacoes para
+o Flask em `127.0.0.1:5000`. Se a resposta for `Acesso nao autorizado`, rode na
+maquina do servidor:
+
+```powershell
+.\scripts\windows\diagnosticar-acesso-automacao.ps1
+```
+
+O diagnostico nao mostra nem altera chaves. Ele informa se
+`AUTOMACAO_EXECUTION_KEY` existe nos dois `.env`, se os valores coincidem e qual
+camada recusou a requisicao.
+
+- **Chaves diferentes:** copie o valor de `AUTOMACAO_EXECUTION_KEY` de
+  `certificados-monitor/.env` para `certificados-frontend/.env.local`, sem
+  aspas, e reinicie o servico `MonitorFrontend`.
+- **Chaves iguais e erro persistente:** reinicie os dois servicos e confira se
+  a instalacao foi realmente atualizada. O workflow do GitHub Actions so executa
+  a etapa `atualizar` quando a variavel `DEPLOY_WINDOWS_ENABLED` vale `true`.
+
+A versao atual dispensa esse alinhamento manual: o proxy do Next se identifica
+ao Flask com `X-Local-Proxy: local`, aceito somente quando a conexao vem da
+propria maquina.
+
 ## Testes
 
 Execute toda a suite com um único pytest a partir da raiz:

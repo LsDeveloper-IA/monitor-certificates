@@ -33,6 +33,7 @@ async function encaminhar(
   }
 
   const chaveAdmin = (process.env.AUTOMACAO_ADMIN_KEY || '').trim();
+  const chaveBackend = (process.env.AUTOMACAO_EXECUTION_KEY || '').trim();
   const chaveRecebida = (request.headers.get('X-Admin-Key') || '').trim();
   const origem = request.headers.get('origin') || '';
   const host = request.headers.get('host') || '';
@@ -85,7 +86,6 @@ async function encaminhar(
     );
   }
 
-  const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
   if (!chaveBackend) {
     return NextResponse.json(
       { erro: 'Execucao da automacao nao configurada' },
@@ -100,6 +100,10 @@ async function encaminhar(
       headers: {
         'Content-Type': 'application/json',
         'X-Automation-Key': chaveBackend,
+        // Identifica o proxy do proprio painel. O Flask so aceita este token
+        // quando a conexao vem de 127.0.0.1/::1, evitando depender de a chave
+        // interna estar repetida no .env.local do frontend.
+        'X-Local-Proxy': 'local',
       },
       body: request.method === 'POST' ? await request.text() : undefined,
       cache: 'no-store',

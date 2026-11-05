@@ -68,7 +68,7 @@ async function encaminhar(
     );
   }
 
-  const chaveBackend = process.env.AUTOMACAO_EXECUTION_KEY;
+  const chaveBackend = (process.env.AUTOMACAO_EXECUTION_KEY || '').trim();
   if (!chaveBackend) {
     return NextResponse.json({ erro: 'Integracao nao configurada' }, { status: 503 });
   }
@@ -80,6 +80,7 @@ async function encaminhar(
       headers: {
         'Content-Type': 'application/json',
         'X-Automation-Key': chaveBackend,
+        'X-Local-Proxy': 'local',
       },
       cache: 'no-store',
     });

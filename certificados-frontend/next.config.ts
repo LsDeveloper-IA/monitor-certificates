@@ -25,21 +25,12 @@ const nextConfig: NextConfig = staticExport
             source: "/api/relatorios/:path*",
             destination: `${backend}/api/relatorios/:path*`,
           },
-          {
-            source: "/api/automacao/:path*",
-            destination: `${backend}/api/automacao/:path*`,
-          },
-          {
-            source: "/api/notificacao/:path*",
-            destination: `${backend}/api/notificacao/:path*`,
-          },
+          // Automacao, notificacao e WhatsContabil passam pelos Route
+          // Handlers em src/app/api, que validam a chave e identificam o
+          // proxy local antes de chamar o Flask.
           {
             source: "/api/historico/:path*",
             destination: `${backend}/api/historico/:path*`,
-          },
-          {
-            source: "/api/whatscontabil/:path*",
-            destination: `${backend}/api/whatscontabil/:path*`,
           },
           {
             source: "/api/configuracao/:path*",

@@ -108,6 +108,20 @@ Nao use `git pull` na pasta de producao depois desse instalador: ela recebe
 arquivos pelo deploy e o HEAD local nao e movido. O commit instalado fica
 registrado no backup e no log do Actions. Para desenvolvimento use outro clone.
 
+## Erro "Acesso nao autorizado" ao iniciar automacoes
+
+Execute no servidor, sem imprimir nem alterar chaves:
+
+```powershell
+.\scripts\windows\diagnosticar-acesso-automacao.ps1
+```
+
+Ele compara `AUTOMACAO_EXECUTION_KEY` do backend e do frontend (considerando
+tambem os XMLs do WinSW) e testa o Flask direto e o Next. Quando as chaves
+diferem, copie o valor do backend para `certificados-frontend\.env.local` e
+reinicie o `MonitorFrontend`. A partir da versao com `X-Local-Proxy`, o
+alinhamento manual deixa de ser necessario.
+
 ## Validacao local, sem deploy
 
 ```powershell
